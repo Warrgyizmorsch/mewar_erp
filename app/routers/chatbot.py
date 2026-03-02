@@ -158,7 +158,7 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
                 FROM inventories WHERE LOWER(name) LIKE LOWER(:q) ORDER BY name LIMIT 5
             """), {"q": f"%{target}%"}).fetchall()
 
-            # FUZZY SEARCH FALLBACK
+            # FUZZY SEARCH FALLBACK (Auto-corrects minor typos like "diamoud")
             if not inventories:
                 all_rows = db.execute(text("SELECT name FROM inventories")).fetchall()
                 names = [r[0] for r in all_rows]
@@ -169,6 +169,9 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
                         FROM inventories WHERE name = :n
                     """), {"n": match[0]}).fetchall()
 
+        # =========================================================
+        # PROCESS RESULTS FOR THIS ITEM
+        # =========================================================
         if len(inventories) > 1:
             final_output.append({
                 "product_requested": target,
@@ -204,7 +207,25 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
                 "inventory": {"id": inv.id, "name": inv.name, "classification": cls},
                 "stock": {"machining": m_stock, "finish": f_stock, "semi_finish": sf_stock, "total": total}
             })
+            
+        # ✅ YOUR NEW SMART SUGGESTIONS BLOCK ✅
         else:
-            final_output.append({"product_requested": target, "message": f"❌ '{target}' not found."})
+            # =========================================================
+            # 🚀 SMART SUGGESTIONS (INSTEAD OF JUST "NOT FOUND")
+            # =========================================================
+            all_rows = db.execute(text("SELECT name FROM inventories")).fetchall()
+            names = [r[0] for r in all_rows]
+            
+            # Find the top 5 closest matches in the database, even if the score is low
+            closest_matches = process.extract(target, names, scorer=fuzz.token_set_ratio, limit=5)
+            
+            # Extract just the names from the RapidFuzz tuple
+            suggested_names = [m[0] for m in closest_matches] if closest_matches else names[:5]
+
+            final_output.append({
+                "product_requested": target,
+                "message": f"❌ '{target}' not found. Did you mean one of these?",
+                "suggestions": suggested_names
+            })
 
     return {"results": final_output}
