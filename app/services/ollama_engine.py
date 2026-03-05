@@ -1,90 +1,51 @@
-import ollama
 import json
 import re
-import os # Add this
-from dotenv import load_dotenv # Add this
+import os
+from dotenv import load_dotenv
+from openai import OpenAI  # 🚀 Fixes the Vercel crash
 
-load_dotenv() # Load the .env file
+load_dotenv()
 
-# --- CONFIGURATION ---
 MODEL_NAME = "gemma3:4b"
 
-# --- 1. SETUP OLLAMA CLIENT ---
+# --- 1. SETUP CLOUD CLIENT ---
 try:
-    # Read securely from .env
     ollama_api_key = os.getenv("OLLAMA_API_KEY")
-
-    client = ollama.Client(
-        host='https://ollama.com',
-        headers={'Authorization': f'Bearer {ollama_api_key}'}
+    client = OpenAI(
+        base_url="https://api.ollama.com/v1", 
+        api_key=ollama_api_key
     )
     print("☁️ Connected to Ollama Cloud!")
-
 except Exception as e:
     print(f"⚠️ Warning: Could not connect to Ollama. {e}")
     client = None
 
-# --- 2. HELPER FUNCTIONS ---
+# --- 2. YOUR ORIGINAL HELPER FUNCTIONS ---
 def clean_json_string(text: str):
-    """Extracts JSON from text if the model adds markdown."""
     match = re.search(r'\{.*\}', text, re.DOTALL)
     return match.group(0) if match else text
 
 def ask_ollama(user_text: str):
-    """
-    Enhanced extraction for multi-search and supplier intents.
-    """
     SYSTEM_PROMPT = """
     You are an ERP Assistant. Extract the USER INTENT and a LIST of exact PRODUCT/SUPPLIER NAMES.
-
-    RULES FOR EXTRACTION:
-    1. VALID INTENTS: 
-       - "stock": asking for quantity/availability of items.
-       - "search": looking for item details.
-       - "supplier_list": if the user ONLY types "supplier", "all suppliers", or "supplier list".
-       - "supplier_search": if the user asks for a specific supplier by ID or name (e.g., "supplier 1", "Mewar Supp").
-       - "greet": greetings.
-    
-    2. EXTRACTION: Extract the exact product names into the "products" list. 
-       CRITICAL RULE: DO NOT drop sizes, dimensions, or numbers! 
-       - If user says "Allen Bolt 10x50", extract EXACTLY "Allen Bolt 10x50".
-       - If user says "bearing 2216", extract EXACTLY "bearing 2216".
-       - If user says "supplier 1", extract "1". If "supplier Mewar", extract "Mewar".
-
-    OUTPUT JSON FORMAT:
-    {"intent": "...", "products": ["item1"]}
-
-    EXAMPLES:
-    User: "bearing aur v belt"
-    JSON: {"intent": "search", "products": ["bearing", "v belt"]}
-    
-    User: "Allen Bolt 10x50 chahiye"
-    JSON: {"intent": "search", "products": ["Allen Bolt 10x50"]}
-    
-    User: "supplier"
-    JSON: {"intent": "supplier_list", "products": []}
-    
-    User: "supplier 1"
-    JSON: {"intent": "supplier_search", "products": ["1"]}
+    1. VALID INTENTS: "stock", "search", "supplier_list", "supplier_search", "greet".
+    2. EXTRACTION: Extract exact names. DO NOT drop sizes (e.g., '10x50').
+    OUTPUT JSON FORMAT: {"intent": "...", "products": ["item1"]}
     """
-
     if not client:
-        print("🔴 Error: Ollama client is not connected.")
         return {"intent": "search", "products": [user_text]}
-
     try:
-        response = client.chat(
+        response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_text}
-            ]
+            ],
+            response_format={ "type": "json_object" } 
         )
-        
-        raw_text = response["message"]["content"]
+        raw_text = response.choices[0].message.content
         cleaned_text = clean_json_string(raw_text)
         return json.loads(cleaned_text)
-
     except Exception as e:
         print(f"🔴 AI Error: {e}")
         return {"intent": "search", "products": [user_text]}

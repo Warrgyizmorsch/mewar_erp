@@ -2,7 +2,8 @@ fastapi
 uvicorn
 sqlalchemy
 pymysql
+cryptography
 python-dotenv
 rapidfuzz
-ollama
+openai
 pydantic
