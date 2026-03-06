@@ -5,7 +5,7 @@ from app.db.database import get_db
 from app.schemas.chat import ChatRequest
 from app.dependencies import get_current_user
 
-# --- IMPORT OLLAMA ENGINE ---
+# --- IMPORT OLLAMA ENGINE & FUZZY TOOLS ---
 from app.services.ollama_engine import ask_ollama
 from rapidfuzz import process, fuzz
 
@@ -26,25 +26,16 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
         return {"message": "Hello! 🙏 I am the Mewar ERP AI. How can I help you today?"}
 
     # =========================================================
-    # 2. THE ERP FAILSAFE: DATABASE FIRST, AI SECOND
+    # 2. SMART AI UNDERSTANDING (Gemma 3)
     # =========================================================
-    # We check the inventory table first. If a match exists, we bypass AI guessing.
-    direct_inv_check = db.execute(text("""
-        SELECT id FROM inventories WHERE LOWER(name) LIKE LOWER(:q) LIMIT 1
-    """), {"q": f"%{low_q}%"}).fetchall()
-
-    if direct_inv_check and "supplier" not in low_q:
-        # 🟢 DIRECT HIT: Force inventory search to avoid AI supplier errors
-        intent = "search"
-        products = [low_q]
-    else:
-        # 🟡 AI FALLBACK: Used for complex questions or supplier lookups
-        ai_data = ask_ollama(raw_q)
-        intent = ai_data.get("intent", "search")
-        products = ai_data.get("products", [])
+    ai_data = ask_ollama(raw_q)
+    intent = ai_data.get("intent", "search")
+    
+    general = ai_data.get("general_categories", [])
+    specific = ai_data.get("specific_items", [])
 
     # =========================================================
-    # FEATURE 1: SHOW ALL SUPPLIERS
+    # FEATURE 1: SUPPLIER LIST & SEARCH
     # =========================================================
     if intent == "supplier_list" or low_q == "supplier":
         suppliers = db.execute(text("SELECT id, supplier_name FROM suppliers LIMIT 50")).fetchall()
@@ -54,28 +45,15 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
             "suppliers": [{"id": s.id, "name": s.supplier_name} for s in suppliers]
         }
 
-    if not products and not low_q.startswith("supplier "):
-        return {"message": "Please specify the items or supplier you are looking for."}
-
-    # =========================================================
-    # FEATURE 2: SUPPLIER SMART SEARCH
-    # =========================================================
     if intent == "supplier_search" or low_q.startswith("supplier "):
-        q = str(products[0]).strip().lower() if products else low_q.replace("supplier", "").strip()
+        q = specific[0] if specific else (general[0] if general else low_q.replace("supplier", "").strip())
+        smart_q = q.replace(" ", "%") # Smart Wildcard for supplier names
         
-        # Find the Supplier (Increased to 10 for better visibility)
-        if q.isdigit():
-            suppliers = db.execute(text("""
-                SELECT id, supplier_name, supplier_code, email, gstin
-                FROM suppliers WHERE id = :id LIMIT 10
-            """), {"id": int(q)}).fetchall()
-        else:
-            suppliers = db.execute(text("""
-                SELECT id, supplier_name, supplier_code, email, gstin
-                FROM suppliers 
-                WHERE LOWER(supplier_name) LIKE LOWER(:q) OR LOWER(supplier_code) LIKE LOWER(:q)
-                ORDER BY supplier_name LIMIT 10
-            """), {"q": f"%{q}%"}).fetchall()
+        suppliers = db.execute(text("""
+            SELECT id, supplier_name, supplier_code FROM suppliers 
+            WHERE LOWER(supplier_name) LIKE LOWER(:q) OR LOWER(supplier_code) LIKE LOWER(:q)
+            LIMIT 10
+        """), {"q": f"%{smart_q}%"}).fetchall()
 
         if len(suppliers) > 1:
             return {
@@ -86,79 +64,90 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
         if not suppliers:
             return {"message": f"Supplier '{q}' not found."}
 
-        # --- GET SUPPLIER INVENTORY ---
+        # --- GET SUPPLIER INVENTORY STOCK ---
         supplier = suppliers[0]
-        inventories = db.execute(text("SELECT id, name, classification FROM inventories ORDER BY name")).fetchall()
+        items = []
+        inv_rows = db.execute(text("SELECT id, name FROM inventories")).fetchall()
         
-        finish_total, semi_finish_total, items = 0, 0, []
-
-        for inv in inventories:
+        for inv in inv_rows:
             txns = db.execute(text("""
-                SELECT txn_type, ref_type, quantity FROM stock_transactions
-                WHERE inventory_id = :inv_id AND supplier_id = :supplier_id
-            """), {"inv_id": inv.id, "supplier_id": supplier.id}).fetchall()
-
-            in_qty, out_qty = 0, 0
-            for t in txns:
-                qty = float(t.quantity or 0)
-                if t.txn_type.lower() == "in": in_qty += qty
-                if t.txn_type.lower() == "out": out_qty += qty
-
-            total = in_qty - out_qty
+                SELECT txn_type, quantity FROM stock_transactions 
+                WHERE inventory_id = :inv_id AND supplier_id = :sup_id
+            """), {"inv_id": inv.id, "sup_id": supplier.id}).fetchall()
+            
+            total = sum(float(t.quantity or 0) if str(t.txn_type).lower() == "in" else -float(t.quantity or 0) for t in txns)
             if total != 0:
-                classification = (inv.classification or "").upper().strip()
-                if classification == "FINISH" or not classification: finish_total += total
-                else: semi_finish_total += total
                 items.append({"inventory_id": inv.id, "name": inv.name, "stock": total})
 
         return {
             "type": "result",
-            "supplier": {"id": supplier.id, "name": supplier.supplier_name, "code": supplier.supplier_code},
-            "finish_stock": finish_total, "semi_finish_stock": semi_finish_total, "items": items
+            "supplier": {"id": supplier.id, "name": supplier.supplier_name},
+            "items": items
         }
 
     # =========================================================
-    # FEATURE 3: STANDARD INVENTORY MULTI-SEARCH
+    # FEATURE 2: SMART INVENTORY SEARCH (Multi-Item & Hindi)
     # =========================================================
     final_output = []
     
-    for p_name in products:
-        target = str(p_name).strip().lower()
-        
-        if target.isdigit():
-            inventories = db.execute(text("SELECT * FROM inventories WHERE id = :id"), {"id": int(target)}).fetchall()
-        else:
-            # 🚀 INCREASED LIMIT TO 10 FOR DROPDOWN 🚀
-            inventories = db.execute(text("""
-                SELECT id, name, classification, unit, placement, height, width, thikness
-                FROM inventories WHERE LOWER(name) LIKE LOWER(:q) ORDER BY name LIMIT 10
-            """), {"q": f"%{target}%"}).fetchall()
+    search_tasks = [{"name": p, "is_specific": False} for p in general] + \
+                   [{"name": p, "is_specific": True} for p in specific]
 
-        # PROCESS RESULTS
-        if len(inventories) > 1:
+    if not search_tasks:
+        search_tasks = [{"name": low_q, "is_specific": False}]
+
+    for task in search_tasks:
+        raw_target = str(task["name"]).strip().lower()
+        is_specific = task["is_specific"]
+
+        # Final safety net for filler words in case AI missed them
+        filler_words = ["mujhe", "chahiye", "dikhao", "kya", "hai", "dikha", "do", "i", "want", "show"]
+        target_words = [w for w in raw_target.split() if w not in filler_words]
+        target = " ".join(target_words) if target_words else raw_target
+
+        # 🚀 SMART WILDCARD LOGIC: Changes "bearing 2216" to "%bearing%2216%"
+        smart_target = target.replace(" ", "%")
+
+        limit_val = 1 if is_specific else 15 
+        inventories = db.execute(text("""
+            SELECT id, name, classification 
+            FROM inventories WHERE LOWER(name) LIKE LOWER(:q) 
+            ORDER BY name LIMIT :limit
+        """), {"q": f"%{smart_target}%", "limit": limit_val}).fetchall()
+
+        if len(inventories) > 1 and not is_specific:
+            # 🟢 Case A: General Dropdown
             final_output.append({
                 "product_requested": target,
                 "type": "dropdown",
-                "message": f"Found {len(inventories)} matches for '{target}':",
+                "message": f"I found several matching '{target}'. Which one are you looking for?",
                 "items": [{"id": i.id, "name": i.name} for i in inventories]
             })
-        elif len(inventories) == 1:
+
+        elif len(inventories) >= 1:
+            # 🔵 Case B: Specific Direct Result
             inv = inventories[0]
             txns = db.execute(text("SELECT txn_type, quantity FROM stock_transactions WHERE inventory_id = :id"), {"id": inv.id}).fetchall()
             
-            total = sum(float(t.quantity) if t.txn_type.lower() == "in" else -float(t.quantity) for t in txns)
+            total = sum(float(t.quantity or 0) if str(t.txn_type).lower() == "in" else -float(t.quantity or 0) for t in txns)
+            
             final_output.append({
                 "type": "result",
-                "inventory": {"id": inv.id, "name": inv.name, "classification": (inv.classification or "").upper()},
+                "inventory": {"id": inv.id, "name": inv.name, "classification": (inv.classification or "FINISH").upper()},
                 "stock": {"total": total}
             })
+
         else:
-            # FUZZY SUGGESTIONS (Auto-fallback)
+            # 🔴 Case C: Spell Check / Suggestions
             all_rows = db.execute(text("SELECT name FROM inventories")).fetchall()
             names = [r[0] for r in all_rows]
-            closest = process.extract(target, names, limit=10)
+            
+            # Using RapidFuzz to find the closest matches even if spelled terribly
+            closest = process.extract(target, names, limit=5)
+            
             final_output.append({
                 "product_requested": target,
+                "type": "suggestion",
                 "message": f"❌ '{target}' not found. Did you mean:",
                 "suggestions": [m[0] for m in closest]
             })
