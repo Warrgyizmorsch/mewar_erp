@@ -1,124 +1,195 @@
 import streamlit as st
 import requests
+import pandas as pd
 
-# ---------------------------------------------------------
-# CONFIGURATION
-# ---------------------------------------------------------
-API_URL = "http://127.0.0.1:8000/chatbot/"
-PAGE_TITLE = "Mewar ERP Assistant"
-PAGE_ICON = "🏭"
+# --- CONFIGURATION ---
+API_BASE = "http://localhost:8000"
+CHAT_URL = f"{API_BASE}/chatbot/"
+LOGIN_URL = f"{API_BASE}/auth/login"
 
-st.set_page_config(page_title=PAGE_TITLE, page_icon=PAGE_ICON)
+st.set_page_config(page_title="Mewar ERP AI", page_icon="🧠", layout="centered")
 
-# ---------------------------------------------------------
-# CSS STYLING (Optional: Makes chat look cleaner)
-# ---------------------------------------------------------
+# --- STYLING ---
 st.markdown("""
-<style>
-    .stButton>button {
-        width: 100%;
-        border-radius: 20px;
-        border: 1px solid #ddd;
-        background-color: #f0f2f6;
-    }
-    .stButton>button:hover {
-        border-color: #FF4B4B;
-        color: #FF4B4B;
-    }
-</style>
+    <style>
+    .main { background-color: #f8f9fa; }
+    .stButton>button { border-radius: 5px; background-color: #007bff; color: white; width: 100%; height: 45px; font-weight: bold; }
+    .login-box { max-width: 450px; margin: auto; padding: 40px; background: white; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+    .metric-card { background: white; padding: 15px; border-radius: 10px; border: 1px solid #eee; text-align: center; }
+    </style>
 """, unsafe_allow_html=True)
 
-# ---------------------------------------------------------
-# SESSION STATE (Chat History)
-# ---------------------------------------------------------
+# --- SESSION STATE INITIALIZATION ---
+if "token" not in st.session_state:
+    st.session_state.token = None
 if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "assistant", "content": "Hello! 👋 I am your Mewar ERP Assistant.\n\nTry asking: **'supplier details'**, **'inventories Stock'**"}
-    ]
+    st.session_state.messages = []
+if "next_query" not in st.session_state:
+    st.session_state.next_query = None
 
-# Helper to handle button clicks (for dropdowns/suggestions)
-def handle_click(item_name):
-    # Add user selection to history
-    st.session_state.messages.append({"role": "user", "content": item_name})
-    # Force a rerun to process this new message immediately
-    st.rerun()
+def set_next_query(query_text):
+    st.session_state.next_query = query_text
 
-# ---------------------------------------------------------
-# UI LAYOUT
-# ---------------------------------------------------------
-st.title(f"{PAGE_ICON} {PAGE_TITLE}")
+# ==========================================
+# CENTRALIZED UI RENDERER
+# ==========================================
+def render_bot_response(data, msg_idx):
+    if "error" in data:
+        st.error(f"🔌 {data['error']}")
+        return
+    if "detail" in data:
+        st.error(f"🔴 Access Error: {data['detail']}")
+        return
 
-# 1. DISPLAY CHAT HISTORY
-for i, msg in enumerate(st.session_state.messages):
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+    # CASE 1: Supplier Directory Table
+    if data.get("type") == "supplier_list":
+        st.info(data["message"])
+        df_sup = pd.DataFrame(data["suppliers"])
+        st.dataframe(df_sup, use_container_width=True, hide_index=True)
+
+    # CASE 2: Supplier Profile Card
+    elif data.get("type") == "result" and "supplier" in data:
+        sup = data["supplier"]
+        st.success(f"🏭 **{sup['name']}** ({sup['code']})")
+        st.markdown(f"**Email:** {sup['email']} | **GSTIN:** {sup['gstin']}")
         
-        # Check if this message has interactive options (Buttons)
-        if "options" in msg and msg["options"]:
-            # Create a container for buttons
-            st.write("👇 **Select an option:**")
-            
-            # Create columns for a grid layout (3 buttons per row)
-            options = msg["options"]
-            num_columns = 3
-            rows = [options[i:i + num_columns] for i in range(0, len(options), num_columns)]
-            
-            for row in rows:
-                cols = st.columns(num_columns)
-                for idx, option_text in enumerate(row):
-                    # Unique key for every button using message index and option index
-                    if cols[idx].button(option_text, key=f"btn_{i}_{option_text}"):
-                        handle_click(option_text)
+        col_f, col_s = st.columns(2)
+        col_f.metric("Finish Stock Balance", f"{data['finish_stock']} units")
+        col_s.metric("Semi-Finish Balance", f"{data['semi_finish_stock']} units")
+        
+        with st.expander("Detailed Item Ledger"):
+            df_items = pd.DataFrame(data["items"])
+            st.dataframe(df_items, use_container_width=True, hide_index=True)
 
-# 2. CHAT INPUT
-if prompt := st.chat_input("Type your query..."):
-    
-    # A. Append User Message
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    # CASE 3: ANALYTICAL COMPARISON (Bar Chart)
+    elif data.get("type") == "analytical_result":
+        st.info(data["message"])
+        df_analysis = pd.DataFrame(data["data"])
+        st.bar_chart(data=df_analysis, x="supplier", y="stock", color="#17a2b8")
+        with st.expander("View Numerical Comparison"):
+            st.dataframe(df_analysis, use_container_width=True, hide_index=True)
 
-    # B. Get Bot Response
-    with st.chat_message("assistant"):
-        with st.spinner("Analyzing Database..."):
-            try:
-                # Call FastAPI Backend
-                response = requests.post(API_URL, json={"query": prompt})
+    # CASE 4: Inventory Results (With Technical Details & Location)
+    elif "results" in data:
+        for res in data["results"]:
+            if res["type"] == "result":
+                inv = res["inventory"]
+                st.success(f"📦 **{inv['name']}**")
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    bot_text = data.get("message", "I didn't understand that.")
-                    
-                    # Check for Dropdown items or Suggestions
-                    options = []
-                    if "items" in data and isinstance(data["items"], list):
-                        # Ensure we only grab strings (names)
-                        options = [item for item in data["items"] if isinstance(item, str)]
-                        # If items are dicts (rare), extract names
-                        if not options and len(data["items"]) > 0 and isinstance(data["items"][0], dict):
-                             options = [item.get("name", "Unknown") for item in data["items"]]
+                c1, c2, c3 = st.columns(3)
+                with c1: st.metric("Current Stock", f"{res['stock']['total']} {inv.get('unit', 'units')}")
+                with c2: st.metric("Item ID", f"#{inv['id']}")
+                with c3: st.metric("Category", inv.get('classification', 'FINISH'))
+                
+                st.markdown(f"""
+                <div style="background-color: #f1f8ff; padding: 12px; border-radius: 8px; margin-top: 10px; border-left: 4px solid #007bff;">
+                    <p style="margin: 0; font-size: 14px; color: #333;">
+                        📍 <b>Store Location:</b> {inv.get('placement', 'N/A')} &nbsp; | &nbsp; 
+                        📐 <b>Dimensions (H x W x T):</b> {inv.get('height', 0)} x {inv.get('width', 0)} x {inv.get('thickness', 0)}
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            elif res["type"] == "dropdown":
+                st.warning(res["message"])
+                cols = st.columns(2)
+                for i, item in enumerate(res["items"]):
+                    cols[i % 2].button(
+                        f"Check {item['name']}", 
+                        key=f"btn_{item['id']}_{msg_idx}", 
+                        on_click=set_next_query, 
+                        args=(item['name'],)
+                    )
 
-                    # Display the text immediately
-                    st.markdown(bot_text)
-                    
-                    # Store response in history (including options if any)
-                    msg_data = {"role": "assistant", "content": bot_text}
-                    if options:
-                        msg_data["options"] = options
-                    
-                    st.session_state.messages.append(msg_data)
-                    
-                    # If we have buttons, we rerun to show them immediately in the loop above
-                    if options:
-                        st.rerun()
+            elif res["type"] == "suggestion":
+                st.error(res["message"])
+                st.write("Suggested matches from database:")
+                for sug in res["suggestions"]:
+                    st.button(
+                        sug, 
+                        key=f"sug_{sug}_{msg_idx}", 
+                        on_click=set_next_query, 
+                        args=(sug,)
+                    )
 
+    # CASE 5: Simple Text (Greetings)
+    elif "message" in data:
+        st.write(data["message"])
+    else:
+        st.warning("Unknown response format. Raw data:")
+        st.json(data)
+
+# ==========================================
+# PAGE 1: LOGIN SYSTEM
+# ==========================================
+if not st.session_state.token:
+    st.markdown('<div class="login-box">', unsafe_allow_html=True)
+    st.title("🔐 Mewar ERP Access")
+    st.caption("Enter your credentials to connect to the Intelligence Layer.")
+    
+    with st.form("auth_form"):
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
+        if st.form_submit_button("Authenticate"):
+            try:
+                res = requests.post(LOGIN_URL, data={"username": u, "password": p})
+                if res.status_code == 200:
+                    st.session_state.token = res.json().get("access_token")
+                    st.rerun()
                 else:
-                    err_msg = f"❌ Server Error: {response.status_code}"
-                    st.error(err_msg)
-                    st.session_state.messages.append({"role": "assistant", "content": err_msg})
-
+                    st.error("Invalid Username or Password.")
             except Exception as e:
-                err_msg = f"❌ **Connection Failed!**\nMake sure your backend is running (`uvicorn main:app --reload`).\n\nError: {e}"
-                st.error(err_msg)
-                st.session_state.messages.append({"role": "assistant", "content": err_msg})
+                st.error(f"FastAPI Server is Offline. ({e})")
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.stop()
+
+# ==========================================
+# PAGE 2: CHATBOT INTERFACE
+# ==========================================
+with st.sidebar:
+    st.header("Admin Panel")
+    st.write(f"Logged in as: **Admin**")
+    if st.button("🚪 Logout"):
+        st.session_state.token = None
+        st.session_state.messages = []
+        st.rerun()
+    st.divider()
+    st.caption("Mewar ERP AI - Smart UI Version")
+
+st.title("ERP Intelligence 🧠")
+
+def ask_erp(query):
+    headers = {"Authorization": f"Bearer {st.session_state.token}", "Content-Type": "application/json"}
+    history = [{"role": m["role"], "content": m.get("raw_content", "")} for m in st.session_state.messages]
+    try:
+        r = requests.post(CHAT_URL, json={"query": query, "history": history}, headers=headers)
+        if r.status_code == 401: return {"detail": "Session Expired. Please Logout."}
+        return r.json()
+    except: return {"error": "FastAPI Connection Failed."}
+
+for idx, msg in enumerate(st.session_state.messages):
+    with st.chat_message(msg["role"]):
+        if msg["role"] == "assistant" and "data" in msg:
+            render_bot_response(msg["data"], idx)
+        else:
+            st.markdown(msg.get("raw_content", ""))
+
+u_input = st.chat_input("Ask me anything about your inventory...")
+final_query = u_input or st.session_state.next_query
+
+if final_query:
+    st.session_state.next_query = None 
+    
+    with st.chat_message("user"):
+        st.markdown(final_query)
+    st.session_state.messages.append({"role": "user", "raw_content": final_query})
+    
+    data = ask_erp(final_query)
+    
+    with st.chat_message("assistant"):
+        render_bot_response(data, len(st.session_state.messages))
+        st.session_state.messages.append({
+            "role": "assistant", 
+            "data": data, 
+            "raw_content": data.get("message", "Processed.")
+        })
