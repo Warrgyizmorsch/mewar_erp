@@ -38,29 +38,60 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
             "machining_stock": m, "finish_stock": f, "semi_finish_stock": sf, "total_stock": (m + f + sf)
         }]}
 
-    # 🚀 STEP 2: AI INTENT & RESTRICTED SUPPLIER LOGIC
+    # 🚀 STEP 2: AI INTENT
     ai_data = ask_ollama(raw_q, getattr(request, "history", []))
     intent = ai_data.get("intent", "search")
     
-    # 👋 GREETINGS INTERCEPTOR
-    greetings = ["hi", "hello", "hey", "good morning", "good evening", "namaste", "how are you"]
-    if intent == "greeting" or any(low_q == g or low_q.startswith(g + " ") for g in greetings):
-        return {"results": [{"message": "Hello! 👋 I am your Mewar ERP Assistant. I can help you check stock levels, item ledgers, and supplier details. What do you need today?"}]}
+    # 👋 GREETINGS & CHAT INTERCEPTOR
+    if intent == "chat" and "message" in ai_data:
+        return {"results": [{"type": "chat", "message": ai_data["message"]}]}
 
+    # 📊 STEP 2.5: MANAGER ANALYTICS INTERCEPTOR
+    if intent == "analytics":
+        report_type = ai_data.get("report_type", "low_stock")
+        
+        # Safely calculate stock for all items
+        all_inv = db.execute(text("SELECT id, name, classification FROM inventories")).fetchall()
+        stock_data = []
+        
+        for inv in all_inv:
+            txns = db.execute(text("SELECT txn_type, quantity FROM stock_transactions WHERE inventory_id = :id"), {"id": inv.id}).fetchall()
+            total = sum([float(t.quantity or 0) * (1 if str(t.txn_type).lower() == "in" else -1) for t in txns])
+            stock_data.append({"Name": inv.name, "Stock": total, "Category": inv.classification or "N/A"})
+        
+        if report_type == "low_stock":
+            stock_data.sort(key=lambda x: x["Stock"])
+            title = "📉 Top 10 Lowest Stock Items"
+        else: # high_stock
+            stock_data.sort(key=lambda x: x["Stock"], reverse=True)
+            title = "📈 Top 10 Highest Stock Items"
+            
+        return {"results": [{
+            "type": "analytics_chart",
+            "title": title,
+            "chart_type": "bar",
+            "data": stock_data[:10]
+        }]}
+
+    # 🌟 MASTER LIST FOR INVENTORY & SUPPLIERS
+    final_output = []
+
+    # 🚀 STEP 3: RESTRICTED SUPPLIER LOGIC
     suppliers_found = []
     clean_s = ""
 
-    # 🔒 OPT-IN SUPPLIER CHECK: Only search suppliers if they use specific words
     supplier_keywords = ["supplier", "vendor", "party", "company", "email", "gstin", "sup-", "sup "]
     is_supplier_intent = any(k in low_q for k in supplier_keywords) or intent in ["supplier_search", "supplier_list"]
 
-    # 🎯 SNIPER MODE (Always checks for explicit SUP- codes)
     code_match = re.search(r'(sup[-\s]\d+)', low_q)
     if code_match:
         clean_s = code_match.group(1).replace(" ", "-")
         suppliers_found = db.execute(text("SELECT * FROM suppliers WHERE LOWER(supplier_code) = :exact LIMIT 1"), {"exact": clean_s}).fetchall()
-    
-    # 🧹 SWEEPER & SPELL-CHECKER (ONLY runs if the user explicitly meant a supplier)
+        if not suppliers_found:
+            num_part = re.sub(r'\D', '', clean_s)
+            if num_part:
+                 suppliers_found = db.execute(text("SELECT * FROM suppliers WHERE id = :id LIMIT 1"), {"id": int(num_part)}).fetchall()
+
     elif is_supplier_intent:
         noise = r'\b(bhai|kya|status|hai|aaj|what|is|the|stock|for|who|email|gstin|details|ka|ke|bata|batao|do|please|yaar|mujhe|of|show|me|our|supplier|suppliers)\b'
         clean_s = re.sub(noise, '', low_q).strip()
@@ -84,13 +115,13 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
                         best_match_id = s_names[matches[0]]
                         suppliers_found = db.execute(text("SELECT * FROM suppliers WHERE id = :id LIMIT 1"), {"id": best_match_id}).fetchall()
 
-    if suppliers_found or is_supplier_intent:
+    if suppliers_found:
         if len(suppliers_found) > 1:
-            return {"results": [{
+            final_output.append({
                 "type": "supplier_list",
                 "message": f"I found multiple suppliers for '{clean_s}'. Please select one:",
                 "suppliers": [{"id": s.id, "name": f"{s.supplier_name} ({s.supplier_code or 'N/A'})"} for s in suppliers_found]
-            }]}
+            })
         elif len(suppliers_found) == 1:
             supplier = suppliers_found[0]
             inventories = db.execute(text("""
@@ -118,7 +149,7 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
                     else: semi_finish_total += total
                     items.append({"inventory_id": inv.id, "name": inv.name, "stock": total})
 
-            return {"results": [{
+            final_output.append({
                 "type": "result", 
                 "supplier": {
                     "id": supplier.id, "name": supplier.supplier_name, "code": getattr(supplier, 'supplier_code', 'N/A'),
@@ -126,35 +157,21 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
                 },
                 "finish_stock": finish_total, "semi_finish_stock": semi_finish_total,
                 "items": items, "message": f"Details for {supplier.supplier_name}"
-            }]}
-        else:
-            all_s = db.execute(text("SELECT id, supplier_name, supplier_code FROM suppliers LIMIT 5")).fetchall()
-            return {"results": [{
-                "type": "supplier_list", 
-                "message": "Which supplier are you looking for? Please select from the list:",
-                "suppliers": [{"id": s.id, "name": f"{s.supplier_name} ({s.supplier_code or 'N/A'})"} for s in all_s]
-            }]}
-
-    # 🚀 STEP 3: GENERAL INVENTORY SEARCH (NINJA CHOPPER + 0.4 SPELL-CHECKER)
+            })
+    
+    # 🚀 STEP 4: GENERAL INVENTORY SEARCH (NINJA CHOPPER)
     search_targets = ai_data.get("specific_items", [])
     
-    # 🧹 Clean the raw string
     inv_noise = r'\b(chahiye|kya|status|hai|aaj|what|is|the|stock|for|details|ka|ke|bata|batao|do|please|yaar|mujhe|of|show|me|our|item)\b'
     clean_q = re.sub(inv_noise, '', low_q).strip()
     clean_q = re.sub(r'\s+', ' ', clean_q)
     
     if not search_targets: 
-        # 🪓 THE NINJA CHOPPER: Slices on "and", "or", and commas!
         if re.search(r'\b(and|or)\b|,', low_q):
             search_targets = [x.strip() for x in re.split(r'\s+and\s+|\s+or\s+|,', clean_q) if x.strip()]
         else:
             search_targets = [clean_q] if clean_q else [low_q]
-    else:
-        # 🚨 AI SAFETY NET
-        if clean_q and clean_q not in search_targets:
-            search_targets.append(clean_q)
     
-    final_output = []
     seen_ids = set() 
 
     for target in search_targets:
@@ -169,7 +186,6 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
             "id_val": int(t_str) if t_str.isdigit() else -1
         }).fetchall()
 
-        # 🪄 THE NEW 0.4 CUTOFF SPELL-CHECKER
         if not inv_res:
             all_inv = db.execute(text("SELECT id, name, classification FROM inventories")).fetchall()
             inv_map = {}
@@ -208,13 +224,19 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
                 "type": "dropdown", "message": f"Select an item for '{target}':",
                 "items": [{"id": i.id, "name": i.name} for i in inv_res]
             })
-            
+
     if final_output:
         return {"results": final_output}
-        
-    # 🆘 THE SUGGESTION MENU
+
+    if is_supplier_intent and not search_targets:
+         all_s = db.execute(text("SELECT id, supplier_name, supplier_code FROM suppliers LIMIT 5")).fetchall()
+         return {"results": [{
+            "type": "supplier_list",
+            "message": "I couldn't find that supplier. Did you mean one of these?",
+            "suppliers": [{"id": s.id, "name": f"{s.supplier_name} ({s.supplier_code or 'N/A'})"} for s in all_s]
+         }]}
+
     suggestions = db.execute(text("SELECT id, name FROM inventories LIMIT 5")).fetchall()
-    
     if suggestions:
         return {"results": [{
             "type": "dropdown",
@@ -222,4 +244,4 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
             "items": [{"id": s.id, "name": s.name} for s in suggestions]
         }]}
         
-    return {"results": [{"message": "I couldn't find that item in the database."}]}
+    return {"results": [{"message": "I couldn't find that in the database."}]}

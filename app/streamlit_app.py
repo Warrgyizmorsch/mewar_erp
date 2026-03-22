@@ -48,17 +48,15 @@ def render_bot_response(data, msg_idx):
             
             st.caption(f"Item ID: #{inv['id']} | Category: {inv.get('classification', 'N/A')}")
         
-        # 🔵 CASE 2: SUPPLIER MATCH (UPDATED WITH ITEMS LIST)
+        # 🔵 CASE 2: SUPPLIER MATCH 
         elif res_type == "result" and "supplier" in res:
             sup = res["supplier"]
             st.info(f"🏭 **{sup['name']}**")
             
-            # Safe checking for None values in DB
             email = sup.get('email') if sup.get('email') else 'N/A'
             gstin = sup.get('gstin') if sup.get('gstin') else 'N/A'
             st.markdown(f"**Email:** {email}  \n**GSTIN:** {gstin}")
             
-            # Show items supplied by this supplier
             items = res.get("items", [])
             if items:
                 st.write("---")
@@ -88,9 +86,28 @@ def render_bot_response(data, msg_idx):
                     on_click=set_next_query, 
                     args=(s['name'],)
                 )
+
+        # 📊 CASE 5: MANAGER ANALYTICS CHARTS (NEW)
+        elif res_type == "analytics_chart":
+            st.subheader(res.get("title", "📊 Analytics Report"))
+            
+            df = pd.DataFrame(res.get("data", []))
+            
+            if not df.empty:
+                # Show an interactive table
+                st.dataframe(df, use_container_width=True, hide_index=True)
+                
+                # Draw the Bar Chart
+                if res.get("chart_type") == "bar":
+                    st.write("---")
+                    st.bar_chart(df.set_index("Name")["Stock"])
+            else:
+                st.info("No data available for this report.")
         
-        # CASE 5: Simple Text
+        # 💬 CASE 6: Simple Text (Chat/Errors)
         elif "message" in res and not res_type:
+            st.write(res["message"])
+        elif res_type == "chat":
             st.write(res["message"])
 
 # ==========================================
@@ -125,7 +142,7 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
     st.divider()
-    st.caption("Mewar ERP AI - Hard Test Ready")
+    st.caption("Mewar ERP AI - Enterprise Edition")
 
 st.title("ERP Intelligence 🧠")
 
