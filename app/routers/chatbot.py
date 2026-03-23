@@ -6,7 +6,7 @@ from app.schemas.chat import ChatRequest
 from app.dependencies import get_current_user
 import re
 import difflib
-import random # 🆕 ADDED: Needed for the random inventory fallback
+import random
 from app.services.ollama_engine import ask_ollama
 
 router = APIRouter(prefix="/chatbot", tags=["Chatbot"])
@@ -47,7 +47,7 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
     if intent == "chat" and "message" in ai_data:
         return {"results": [{"type": "chat", "message": ai_data["message"]}]}
 
-    # 📊 STEP 2.5: MANAGER ANALYTICS INTERCEPTOR (Lightning Fast - No N+1 Loop)
+    # 📊 STEP 2.5: MANAGER ANALYTICS INTERCEPTOR 
     if intent == "analytics":
         report_type = ai_data.get("report_type", "low_stock")
         
@@ -69,7 +69,7 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
         if report_type == "low_stock":
             stock_data.sort(key=lambda x: x["Stock"])
             title = "📉 Top 10 Lowest Stock Items"
-        else: # high_stock
+        else: 
             stock_data.sort(key=lambda x: x["Stock"], reverse=True)
             title = "📈 Top 10 Highest Stock Items"
             
@@ -87,7 +87,6 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
     suppliers_found = []
     clean_s = ""
 
-    # 🆕 FIXED: Added misspellings (suplier, suppler, supllier) to keywords
     supplier_keywords = ["supplier", "vendor", "party", "company", "email", "gstin", "sup-", "sup ", "suplier", "suppler", "supllier"]
     is_supplier_intent = any(k in low_q for k in supplier_keywords) or intent in ["supplier_search", "supplier_list"]
 
@@ -101,19 +100,18 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
                  suppliers_found = db.execute(text("SELECT * FROM suppliers WHERE id = :id LIMIT 1"), {"id": int(num_part)}).fetchall()
 
     elif is_supplier_intent:
-        # 🆕 FIXED: Added misspellings to the noise regex filter
-        noise = r'\b(bhai|kya|status|hai|aaj|what|is|the|stock|for|who|email|gstin|details|ka|ke|bata|batao|do|please|yaar|mujhe|of|show|me|our|supplier|suppliers|suplier|suppler|supllier)\b'
+        noise = r'\b(bhai|kya|ki|status|hai|aaj|what|is|the|stock|for|who|email|gstin|details|ka|ke|bata|batao|do|please|yaar|mujhe|of|show|me|our|supplier|suppliers|suplier|suppler|supllier)\b'
         clean_s = re.sub(noise, '', low_q).strip()
         clean_s = re.sub(r'[^\w\s-]', '', clean_s).strip()
         clean_s = re.sub(r'\s+', ' ', clean_s)
 
         if clean_s:
             if clean_s.isdigit():
-                suppliers_found = db.execute(text("SELECT * FROM suppliers WHERE id = :id LIMIT 10"), {"id": int(clean_s)}).fetchall()
+                suppliers_found = db.execute(text("SELECT * FROM suppliers WHERE id = :id"), {"id": int(clean_s)}).fetchall()
             else:
                 suppliers_found = db.execute(text("""
                     SELECT * FROM suppliers 
-                    WHERE LOWER(supplier_name) LIKE :q OR LOWER(supplier_code) LIKE :q LIMIT 10
+                    WHERE LOWER(supplier_name) LIKE :q OR LOWER(supplier_code) LIKE :q
                 """), {"q": f"%{clean_s}%"}).fetchall()
                 
                 if not suppliers_found:
@@ -168,14 +166,13 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
                 "items": items, "message": f"Details for {supplier.supplier_name}"
             })
     
-    # 🚀 STEP 4: GENERAL INVENTORY SEARCH (NINJA CHOPPER WITH NEW NOISE FILTER)
+    # 🚀 STEP 4: GENERAL INVENTORY SEARCH
     raw_targets = ai_data.get("specific_items", [])
     
-    # Clean the AI output just in case it returned "supplier" as an item
-    search_targets = [t for t in raw_targets if str(t).lower() not in ["supplier", "suppliers", "details", "list", "all"]]
+    ai_exclusions = ["supplier", "suppliers", "details", "list", "all", "suplier", "suppler", "supllier", "vendor", "party"]
+    search_targets = [t for t in raw_targets if str(t).lower() not in ai_exclusions]
     
-    # 🧹 Added "supplier", "kon", "list", "all" to the noise filter!
-    inv_noise = r'\b(chahiye|kya|status|hai|aaj|what|is|the|stock|for|details|ka|ke|bata|batao|do|please|yaar|mujhe|of|show|me|our|item|supplier|suppliers|kon|list|all)\b'
+    inv_noise = r'\b(chahiye|kya|ki|status|hai|aaj|what|is|the|stock|for|details|ka|ke|bata|batao|do|please|yaar|mujhe|of|show|me|our|item|supplier|suppliers|suplier|suppler|supllier|vendor|party|kon|list|all)\b'
     clean_q = re.sub(inv_noise, '', low_q).strip()
     clean_q = re.sub(r'\s+', ' ', clean_q)
     
@@ -243,21 +240,19 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db), user=Depends(ge
     if final_output:
         return {"results": final_output}
 
-    # 🆘 FALLBACK 1: IF USER ASKED FOR A SUPPLIER BUT WE COULDN'T FIND A SPECIFIC ONE
+    # 🆘 FALLBACK 1: SUPPLIER MENU
     if is_supplier_intent:
-         all_s = db.execute(text("SELECT id, supplier_name, supplier_code FROM suppliers LIMIT 5")).fetchall()
+         all_s = db.execute(text("SELECT id, supplier_name, supplier_code FROM suppliers")).fetchall()
          return {"results": [{
             "type": "supplier_list",
-            "message": "Here is the list of suppliers:",
+            "message": "Here is the complete list of suppliers:",
             "suppliers": [{"id": s.id, "name": f"{s.supplier_name} ({s.supplier_code or 'N/A'})"} for s in all_s]
          }]}
 
-    # 🆘 FALLBACK 2: INVENTORY SUGGESTIONS
-    # 🆕 FIXED: Fetches a larger pool (50) and uses Python to pick 5 random items to ensure variety
+    # 🆘 FALLBACK 2: RANDOM INVENTORY SUGGESTIONS
     raw_suggestions = db.execute(text("SELECT id, name FROM inventories LIMIT 50")).fetchall()
     
     if raw_suggestions:
-        # random.sample safely picks up to 5 unique items from the list
         suggestions = random.sample(raw_suggestions, min(5, len(raw_suggestions)))
         return {"results": [{
             "type": "dropdown",

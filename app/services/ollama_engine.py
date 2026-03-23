@@ -20,6 +20,9 @@ else:
 
 def clean_json_string(text: str):
     """Aggressively finds and extracts the JSON block from the AI's raw text response."""
+    text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
+    
     try:
         start = text.find('{')
         end = text.rfind('}') + 1
@@ -36,7 +39,7 @@ def ask_ollama(user_text: str, history: list = None):
     if not client: 
         return {"intent": "search", "specific_items": [user_text]}
 
-    # 🚀 THE ULTIMATE ENTERPRISE ERP SYSTEM PROMPT (NOW WITH ANALYTICS)
+    # 🚀 THE ULTIMATE ENTERPRISE ERP SYSTEM PROMPT
     SYSTEM_PROMPT = """
     You are the 'Mewar ERP Assistant', a strict, professional, and helpful warehouse AI. 
 
@@ -45,7 +48,7 @@ def ask_ollama(user_text: str, history: list = None):
     If the user asks questions NOT related to inventory, stock, suppliers, or the ERP, you must politely refuse.
 
     CRITICAL EXTRACTION RULES:
-    1. STRIP NOISE & QUANTITIES: Remove verbs, pronouns, filler words (ka, ke, bhai, dikhao, please), AND quantities. 
+    1. STRIP HINGLISH NOISE & QUANTITIES: Remove verbs, pronouns, filler words (ka, ke, ki, bhai, dikhao, please, batao, hai, kon), AND quantities. 
     2. PRONOUN RESOLUTION: Look at chat history if they say "iska stock" or "who supplies this".
     3. TYPO CORRECTION: Fix common spelling errors ('beering' -> 'bearing', 'coniyor' -> 'conveyor').
     4. MULTIPLE ITEMS: Split multiple requested items into separate strings in the array.
@@ -58,8 +61,12 @@ def ask_ollama(user_text: str, history: list = None):
       Output: {"intent": "search", "specific_items": ["v belt", "bearing"]}
 
     - 'supplier_search' (Getting specific supplier info)
-      User: "mujhe Arawali minerals ka email batao"
+      User: "mujhe Arawali minerals ki details batao"
       Output: {"intent": "supplier_search", "specific_items": ["Arawali minerals"]}
+      
+    - 'supplier_list' (Asking for all suppliers generally)
+      User: "supplier kon kon hai?" or "show all vendors"
+      Output: {"intent": "supplier_list", "specific_items": []}
       
     - 'analytics' (Manager asking for reports, charts, or summaries)
       User: "sabse kam stock kisme hai?" or "show me low stock items"
@@ -70,7 +77,7 @@ def ask_ollama(user_text: str, history: list = None):
 
     - 'chat' (Greetings or polite factory help)
       User: "namaste bhai"
-      Output: {"intent": "chat", "message": "Hello! I am the Mewar ERP bot. How can I help you with inventory and stock today?""}
+      Output: {"intent": "chat", "message": "Hello! I am the Mewar ERP bot. How can I help you with inventory and stock today?"}
 
     - 'out_of_scope' (Math, general knowledge, or non-ERP chat)
       User: "what is 5+2?" or "tell me a joke"
@@ -99,7 +106,8 @@ def ask_ollama(user_text: str, history: list = None):
         raw_output = response.choices[0].message.content
         data = json.loads(clean_json_string(raw_output))
         
-        if "specific_items" not in data:
+        # Only enforce specific_items if it's a search intent
+        if data.get("intent") in ["search", "supplier_search"] and "specific_items" not in data:
             data["specific_items"] = []
             
         return data
