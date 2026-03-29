@@ -6,7 +6,8 @@ import datetime
 # ==========================================
 # 🚀 API CONFIGURATION
 # ==========================================
-API_BASE = "https://mewar-erp.vercel.app"
+# API_BASE = "https://mewar-erp.vercel.app"
+API_BASE = "http://127.0.0.1:8000"
 CHAT_URL = f"{API_BASE}/chatbot/"
 
 st.set_page_config(page_title="Mewar ERP AI", page_icon="🧠", layout="centered")
