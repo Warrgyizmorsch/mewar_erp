@@ -1,9 +1,10 @@
 import streamlit as st
 import requests
 import pandas as pd
+import datetime
 
 # ==========================================
-# 🚀 STRICTLY LOCALHOST CONFIGURATION
+# 🚀 API CONFIGURATION
 # ==========================================
 API_BASE = "https://mewar-erp.vercel.app"
 CHAT_URL = f"{API_BASE}/chatbot/"
@@ -33,7 +34,7 @@ def render_bot_response(data, msg_idx):
     for res in results_list:
         res_type = res.get("type")
 
-        # 🟢 CASE 1: EXACT STOCK MATCH
+        # 🟢 CASE 1: EXACT STOCK MATCH (Includes Placement/Location)
         if res_type == "result" and "inventory" in res:
             inv = res["inventory"]
             st.success(f"📦 **{inv['name']}**")
@@ -44,7 +45,8 @@ def render_bot_response(data, msg_idx):
             c3.metric("Semi-Finish", res.get("semi_finish_stock", 0))
             c4.metric("Machining", res.get("machining_stock", 0))
             
-            st.caption(f"Item ID: #{inv['id']} | Category: {inv.get('classification', 'N/A')}")
+            # ✅ Added Placement/Location to Caption
+            st.caption(f"Item ID: #{inv['id']} | Category: {inv.get('classification', 'N/A')} | 📍 Location: {inv.get('placement', 'Not Assigned')}")
         
         # 🔵 CASE 2: SUPPLIER MATCH 
         elif res_type == "result" and "supplier" in res:
@@ -58,7 +60,7 @@ def render_bot_response(data, msg_idx):
             city = sup.get('city', 'N/A')
             state = sup.get('state', 'N/A')
             
-            st.markdown(f"**Code:** {code}  \n**Mobile:** {mobile}  \n**Email:** {email}  \n**Location:** {city}, {state}  \n**GSTIN:** {gstin}")
+            st.markdown(f"**Code:** {code}  \n**Mobile:** {mobile}  \n**Location:** {city}, {state}  \n**GSTIN:** {gstin}")
             
             if "items" in res:
                 st.write("---")
@@ -69,8 +71,56 @@ def render_bot_response(data, msg_idx):
                         st.write(f"- {item.get('name')}: **{item.get('stock')}** in stock")
                 else:
                     st.info("📦 No active inventory currently in stock from this supplier.")
+
+        # 🧾 CASE 3: PURCHASE ORDER (PO) RESULT
+        elif res_type == "po_result":
+            st.info(f"🧾 **Purchase Order: {res.get('po_no')}**")
+            st.write(f"**Supplier:** {res.get('supplier')}")
+            st.caption(f"📅 **Date:** {res.get('date')}")
             
-        # 🟡 CASE 3: DROPDOWN MENU
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total Amount", f"₹{res.get('total', 0):,.2f}")
+            c2.metric("Advance", f"₹{res.get('advance', 0):,.2f}")
+            
+            balance = res.get('balance', 0)
+            if balance > 0:
+                c3.error(f"Balance: ₹{balance:,.2f}")
+            else:
+                c3.success(f"Balance: ₹0.00")
+            st.write("---")
+
+        # 📁 CASE 4: PROJECT RESULT (With Live Timer)
+        elif res_type == "project_result":
+            st.info(f"📁 **Project: {res.get('project_name')}**")
+            
+            p1, p2 = st.columns(2)
+            p1.write(f"**Category:** {res.get('category', 'N/A')}")
+            
+            client = res.get('client', 'None')
+            p2.write(f"**Client:** {client if client and client != 'None' else 'Internal'}")
+            
+            end_date_str = str(res.get('end_date', 'N/A'))
+            st.caption(f"📅 **Timeline:** {res.get('start_date')}  ➔  {end_date_str}")
+            
+            # ✅ Live Countdown Timer
+            if end_date_str not in ['N/A', 'None', '']:
+                try:
+                    clean_date = end_date_str.split()[0] 
+                    end_dt = datetime.datetime.strptime(clean_date, '%Y-%m-%d').date()
+                    days_left = (end_dt - datetime.date.today()).days
+                    
+                    if days_left > 0:
+                        st.success(f"⏳ **{days_left} Days Remaining**")
+                    elif days_left == 0:
+                        st.warning("⏳ **Project Deadline Today!**")
+                    else:
+                        st.error(f"⚠️ **Overdue by {abs(days_left)} Days**")
+                except: pass
+            
+            st.metric("Estimated Amount", f"₹{res.get('amount', 0):,.2f}")
+            st.write("---")
+
+        # 🟡 CASE 5: DROPDOWN MENU
         elif res_type == "dropdown":
             st.warning(res.get("message", "Select an item:"))
             cols = st.columns(2)
@@ -83,7 +133,7 @@ def render_bot_response(data, msg_idx):
                     args=(str(item['id']),) 
                 )
                 
-        # 🟡 CASE 4: SUPPLIER LIST MENU
+        # 🟡 CASE 6: SUPPLIER LIST MENU
         elif res_type == "supplier_list":
             st.warning(res.get("message", "Select a supplier:"))
             for i, s in enumerate(res.get("suppliers", [])):
@@ -94,7 +144,7 @@ def render_bot_response(data, msg_idx):
                     args=(s['name'],)
                 )
 
-        # 📊 CASE 5: MANAGER ANALYTICS CHARTS
+        # 📊 CASE 7: MANAGER ANALYTICS CHARTS
         elif res_type == "analytics_chart":
             st.subheader(res.get("title", "📊 Analytics Report"))
             df = pd.DataFrame(res.get("data", []))
@@ -106,7 +156,7 @@ def render_bot_response(data, msg_idx):
             else:
                 st.info("No data available for this report.")
         
-        # 💬 CASE 6: Simple Text (Chat/Errors)
+        # 💬 CASE 8: Simple Text (Chat/Errors)
         elif "message" in res and not res_type:
             st.write(res["message"])
         elif res_type == "chat":
@@ -122,12 +172,11 @@ with st.sidebar:
     if st.button("🗑️ Clear Chat History"):
         st.session_state.messages = []
         st.rerun()
-    st.caption("Mewar ERP AI - Testing Mode")
+    st.caption("Mewar ERP AI - Production Mode")
 
 st.title("ERP Intelligence 🧠")
 
 def ask_erp(query):
-    # Removed the Authorization header entirely
     headers = {"Content-Type": "application/json"}
     history = [{"role": m["role"], "content": m.get("raw_content", "")} for m in st.session_state.messages]
     try:
@@ -144,7 +193,7 @@ for idx, msg in enumerate(st.session_state.messages):
         else:
             st.markdown(msg.get("raw_content", ""))
 
-u_input = st.chat_input("Ask me anything about your inventory...")
+u_input = st.chat_input("Ask about inventory, POs, or Projects...")
 final_query = u_input or st.session_state.next_query
 
 if final_query:
