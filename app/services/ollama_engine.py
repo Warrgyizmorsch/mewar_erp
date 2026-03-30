@@ -114,8 +114,20 @@ def ask_ollama(user_text: str, history: list = None):
             temperature=0.0 
         )
         
-        raw_output = response.choices[0].message.content
-        data = json.loads(clean_json_string(raw_output))
+        # --- SCREENSHOT LOGIC ADDED HERE ---
+        response_text = response.choices[0].message.content
+        
+        # 🧼 THE SCRUBBER: Strip out markdown formatting if the AI gets chatty
+        clean_text = response_text.replace("```json", "").replace("```", "").strip()
+        
+        # Now parse the perfectly clean text!
+        # (json is already imported at the top of the file)
+        try:
+            data = json.loads(clean_text)
+        except Exception as e:
+            # Fallback if it completely fails
+            return {"intent": "unknown", "message": "Backend AI formatting error."}
+        # --- END OF SCREENSHOT LOGIC ---
         
         # Only enforce specific_items if it's a search intent
         if data.get("intent") in ["search", "supplier_search"] and "specific_items" not in data:
