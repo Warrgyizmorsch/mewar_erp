@@ -39,12 +39,30 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
                 "machining_stock": m, "finish_stock": f, "semi_finish_stock": sf, "total_stock": (m + f + sf)
             }]}
 
-    # 🚀 STEP 2: AI INTENT DETECTION
+    # STEP 2: AI INTENT DETECTION
     ai_data = ask_ollama(raw_q, getattr(request, "history", []))
     intent = ai_data.get("intent", "search")
     
+    # ==========================================
+    # ADD THIS FIX: HARD KEYWORD OVERRIDES
+    # Prevents AI from misclassifying explicit requests
+    # ==========================================
+    if re.search(r'\b(po|purchase order|mhel/po)\b', low_q):
+        intent = "po_search"
+    elif re.search(r'\b(project|projects)\b', low_q):
+        intent = "project_search"
+    # ==========================================
+
     if intent == "chat" and "message" in ai_data:
         return {"results": [{"type": "chat", "message": ai_data["message"]}]}
+
+    # ==========================================
+    # THE NEW GIBBERISH BLOCKER
+    # ==========================================
+    if intent == "unknown":
+        msg = ai_data.get("message", "I didn't understand. Are you looking for Inventory, POs, Suppliers, or Projects?")
+        return {"results": [{"type": "chat", "message": msg}]}
+    # ==========================================
 
     # 📊 STEP 3: MANAGER ANALYTICS
     if intent == "analytics":
@@ -104,7 +122,7 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
     # 📁 STEP 5: PROJECT LOGIC
     project_keywords = ["project", "projects"]
     if any(k in low_q for k in project_keywords) or intent == "project_search":
-        noise = r'\b(bhai|ki|hai|dikhao|show|me|project|projects|details|ka|ke|latest)\b'
+        noise = r'\b(bhai|ki|hai|dikhao|show|me|project|projects|details|ka|ke|latest|kon|se|kya|batao|list|all|do)\b'
         clean_proj = re.sub(noise, '', low_q).strip()
         
         if not clean_proj or len(clean_proj) < 2:
