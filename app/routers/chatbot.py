@@ -169,7 +169,30 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
     # 📦 STEP 7: INVENTORY PRIORITY GATE
     inv_output = []
     
-    
+    # 7.1 Exact Match Override
+    exact_inv = db.execute(text("SELECT id, name, classification, placement FROM inventories WHERE LOWER(name) = :q LIMIT 1"), {"q": low_q}).fetchone()
+    if exact_inv:
+        txns = db.execute(text("SELECT txn_type, quantity FROM stock_transactions WHERE inventory_id = :id"), {"id": exact_inv.id}).fetchall()
+        m, f, sf = 0, 0, 0
+        cls = str(exact_inv.classification).lower() if exact_inv.classification else ""
+        for t in txns:
+            val = float(t.quantity or 0) * (1 if str(t.txn_type).lower() == "in" else -1)
+            if "machining" in cls: m += val
+            elif "semi" in cls: sf += val
+            else: f += val
+        
+        inv_output.append({
+            "type": "result",
+            "inventory": {
+                "id": exact_inv.id, 
+                "name": exact_inv.name, 
+                "classification": cls.upper() if cls else "N/A",
+                "placement": getattr(exact_inv, 'placement', None) or "Not Assigned"
+            },
+            "machining_stock": m, "finish_stock": f, "semi_finish_stock": sf, "total_stock": (m + f + sf)
+        })
+        return {"results": inv_output} 
+
     # 7.2 General Inventory Search (Fuzzy & Multi-Item)
     raw_targets = ai_data.get("specific_items", [])
     ai_exclusions = ["supplier", "suppliers", "details", "list", "all", "suplier", "suppler", "supllier", "vendor", "party", "po", "purchase order", "project"]
