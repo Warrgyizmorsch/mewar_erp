@@ -86,43 +86,42 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
             stock_data.sort(key=lambda x: x["Stock"], reverse=True)
             title = "📈 Top 10 Highest Stock Items"
         return {"results": [{"type": "analytics_chart", "title": title, "chart_type": "bar", "data": stock_data[:10]}]}
-# 🧾 STEP 4: PURCHASE ORDER (PO) LOGIC
+    
+# # 🧾 STEP 4: PURCHASE ORDER (PO) LOGIC
     if intent == "po_search":
-        ai_target = ai_data.get("search_target", "").strip()
-        
-        # We use a JOIN here to get the actual Supplier Name (like "Arawali Minerals" in your screenshot)
-        base_query = """
-            SELECT p.*, s.supplier_name 
-            FROM purchase_orders p
-            LEFT JOIN suppliers s ON p.supplier_id = s.id
-        """
-        
-        if not ai_target:
-            query = text(base_query + " ORDER BY p.id DESC LIMIT 5")
-            po_results = db.execute(query).fetchall()
-        else:
-            # We search against purchase_order_no based on your screenshot
-            query = text(base_query + " WHERE LOWER(p.purchase_order_no) LIKE :q ORDER BY p.id DESC LIMIT 5")
-            po_results = db.execute(query, {"q": f"%{ai_target.lower()}%"}).fetchall()
+        try:
+            ai_target = ai_data.get("search_target", "").strip()
+            
+            # Removed the risky JOIN. We are only looking at the PO table now.
+            base_query = "SELECT * FROM purchase_orders"
+            
+            if not ai_target:
+                query = text(base_query + " ORDER BY id DESC LIMIT 5")
+                po_results = db.execute(query).fetchall()
+            else:
+                # We search against purchase_order_no
+                query = text(base_query + " WHERE LOWER(purchase_order_no) LIKE :q ORDER BY id DESC LIMIT 5")
+                po_results = db.execute(query, {"q": f"%{ai_target.lower()}%"}).fetchall()
 
-        if po_results:
-            results = []
-            for p in po_results:
-                results.append({
-                    "type": "po_result",
-                    # Mapped to "PURCHASE ORDER NO"
-                    "po_no": str(getattr(p, 'purchase_order_no', 'N/A')),
-                    # Mapped to "PURCHASE ORDER DATE"
-                    "date": str(getattr(p, 'purchase_order_date', 'N/A')),
-                    # Grabbing the joined supplier name
-                    "supplier": str(getattr(p, 'supplier_name', 'Unknown Supplier')), 
-                    # Mapped to amounts in your screenshot
-                    "total": float(getattr(p, 'total_amount', 0)),
-                    "advance": float(getattr(p, 'advance', 0)),
-                    "balance": float(getattr(p, 'balance_amount', 0))
-                })
-            return {"results": results}
-
+            if po_results:
+                results = []
+                for p in po_results:
+                    results.append({
+                        "type": "po_result",
+                        "po_no": str(getattr(p, 'purchase_order_no', 'N/A')),
+                        "date": str(getattr(p, 'purchase_order_date', 'N/A')),
+                        # Let's see if the supplier name is just saved directly in the PO table
+                        "supplier": str(getattr(p, 'supplier', getattr(p, 'supplier_name', 'Check Details'))), 
+                        "total": float(getattr(p, 'total_amount', 0)),
+                        "advance": float(getattr(p, 'advance', 0)),
+                        "balance": float(getattr(p, 'balance_amount', 0))
+                    })
+                return {"results": results}
+                
+        except Exception as e:
+            # 🛡️ THE SAFETY NET: If SQL fails, show the error in the chat, don't crash!
+            print(f"🔴 SQL Error in PO Search: {e}")
+            return {"results": [{"type": "chat", "message": f"Database Column Error: {str(e)}. Please check your Hostinger database for the correct column names."}]}
 
     # 📁 STEP 5: PROJECT LOGIC
     if intent == "project_search":
