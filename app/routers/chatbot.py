@@ -15,7 +15,7 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
     raw_q = request.query.strip()
     low_q = raw_q.lower()
     
-    # 🎯 STEP 1: ID-ONLY FAST-TRACK (Inventory Priority - with Placement)
+    # 🎯 STEP 1: ID-ONLY FAST-TRACK (Inventory Priority)
     if low_q.isdigit():
         inv = db.execute(text("SELECT id, name, classification, placement FROM inventories WHERE id = :id"), {"id": int(low_q)}).fetchone()
         if inv:
@@ -31,8 +31,10 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
             return {"results": [{
                 "type": "result",
                 "inventory": {
-                    "id": inv.id, "name": inv.name, "classification": cls.upper(), 
-                    "placement": getattr(inv, 'placement', 'Not Assigned')
+                    "id": inv.id, 
+                    "name": inv.name, 
+                    "classification": cls.upper() if cls else "N/A", 
+                    "placement": getattr(inv, 'placement', None) or "Not Assigned"
                 },
                 "machining_stock": m, "finish_stock": f, "semi_finish_stock": sf, "total_stock": (m + f + sf)
             }]}
@@ -44,7 +46,7 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
     if intent == "chat" and "message" in ai_data:
         return {"results": [{"type": "chat", "message": ai_data["message"]}]}
 
-    # 📊 MANAGER ANALYTICS
+    # 📊 STEP 3: MANAGER ANALYTICS
     if intent == "analytics":
         report_type = ai_data.get("report_type", "low_stock")
         all_inv = db.execute(text("SELECT id, name, classification FROM inventories")).fetchall()
@@ -67,27 +69,70 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
             title = "📈 Top 10 Highest Stock Items"
         return {"results": [{"type": "analytics_chart", "title": title, "chart_type": "bar", "data": stock_data[:10]}]}
 
-    final_output = []
+    # 🧾 STEP 4: PURCHASE ORDER (PO) LOGIC
+    po_keywords = ["po", "purchase order", "order", "mhel/po"]
+    if any(k in low_q for k in po_keywords) or intent == "po_search":
+        noise = r'\b(bhai|ki|hai|dikhao|show|me|purchase|order|po|details|ka|ke|latest)\b'
+        clean_po = re.sub(noise, '', low_q).strip()
+        
+        base_query = """
+            SELECT p.*, s.supplier_name 
+            FROM purchase_orders p
+            LEFT JOIN suppliers s ON p.supplier_id = s.id
+        """
+        if not clean_po or len(clean_po) < 2:
+            query = text(base_query + " ORDER BY p.id DESC LIMIT 5")
+            po_results = db.execute(query).fetchall()
+        else:
+            query = text(base_query + " WHERE LOWER(p.purchase_order_no) LIKE :q OR LOWER(s.supplier_name) LIKE :q ORDER BY p.id DESC LIMIT 5")
+            po_results = db.execute(query, {"q": f"%{clean_po}%"}).fetchall()
 
-    # 🏭 STEP 3: PROFESSIONAL SUPPLIER LOGIC (The Smart Gate)
-    suppliers_found = []
-    supplier_keywords = ["supplier", "vendor", "party", "company", "active", "suplier", "supllier"]
+        if po_results:
+            results = []
+            for p in po_results:
+                results.append({
+                    "type": "po_result",
+                    "po_no": getattr(p, 'purchase_order_no', 'N/A'),
+                    "date": str(getattr(p, 'purchase_order_date', getattr(p, 'date', 'N/A'))),
+                    "supplier": getattr(p, 'supplier_name', 'Unknown'),
+                    "total": float(getattr(p, 'total_amount', 0)),
+                    "advance": float(getattr(p, 'advance', 0)),
+                    "balance": float(getattr(p, 'balance_amount', 0))
+                })
+            return {"results": results}
+
+    # 📁 STEP 5: PROJECT LOGIC
+    project_keywords = ["project", "projects"]
+    if any(k in low_q for k in project_keywords) or intent == "project_search":
+        noise = r'\b(bhai|ki|hai|dikhao|show|me|project|projects|details|ka|ke|latest)\b'
+        clean_proj = re.sub(noise, '', low_q).strip()
+        
+        if not clean_proj or len(clean_proj) < 2:
+            query = text("SELECT * FROM projects ORDER BY id DESC LIMIT 5")
+            proj_results = db.execute(query).fetchall()
+        else:
+            query = text("SELECT * FROM projects WHERE LOWER(project_name) LIKE :q OR LOWER(name) LIKE :q ORDER BY id DESC LIMIT 5")
+            proj_results = db.execute(query, {"q": f"%{clean_proj}%"}).fetchall()
+
+        if proj_results:
+            results = []
+            for p in proj_results:
+                results.append({
+                    "type": "project_result",
+                    "project_name": getattr(p, 'project_name', getattr(p, 'name', 'Unknown')),
+                    "category": getattr(p, 'category', 'N/A'),
+                    "amount": float(getattr(p, 'estimated_amount', getattr(p, 'budget', 0))),
+                    "start_date": str(getattr(p, 'start_date', 'N/A')),
+                    "end_date": str(getattr(p, 'end_date', 'N/A')),
+                    "client": str(getattr(p, 'client', 'Internal')) 
+                })
+            return {"results": results}
+
+    # 🏭 STEP 6: EXPLICIT SUPPLIER REQUESTS
+    supplier_keywords = ["supplier", "vendor", "party", "company", "active", "suplier", "supllier", "directory"]
+    is_explicit_supplier = any(k in low_q for k in supplier_keywords) or intent in ["supplier_search", "supplier_list"]
     
-    is_supplier_intent = any(k in low_q for k in supplier_keywords) or intent in ["supplier_search", "supplier_list"]
-    
-    if not is_supplier_intent and len(low_q) > 2:
-        all_s = db.execute(text("SELECT supplier_name FROM suppliers")).fetchall()
-        s_names = [s.supplier_name.lower() for s in all_s]
-        if any(low_q in name for name in s_names):
-            is_supplier_intent = True
-        elif difflib.get_close_matches(low_q, s_names, n=1, cutoff=0.6):
-            is_supplier_intent = True
-
-    exact_supplier = db.execute(text("SELECT * FROM suppliers WHERE LOWER(supplier_name) = :q LIMIT 1"), {"q": low_q}).fetchall()
-    if exact_supplier:
-        is_supplier_intent = True
-
-    if is_supplier_intent:
+    if is_explicit_supplier:
         noise = r'\b(bhai|ki|hai|aaj|details|ka|ke|batao|do|show|me|supplier|suppliers|suplier|supllier|active|list|all|kon|directory)\b'
         clean_s = re.sub(noise, '', low_q).strip()
         clean_s = re.sub(r'[^\w\s-]', '', clean_s).strip()
@@ -96,16 +141,10 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
             all_s = db.execute(text("SELECT id, supplier_name, supplier_code FROM suppliers ORDER BY supplier_name ASC")).fetchall()
             return {"results": [{"type": "supplier_list", "message": "📋 Active Supplier Directory:", "suppliers": [{"id": s.id, "name": f"{s.supplier_name} ({s.supplier_code})"} for s in all_s]}]}
 
-        suppliers_found = exact_supplier if exact_supplier else db.execute(text("SELECT * FROM suppliers WHERE LOWER(supplier_name) LIKE :q"), {"q": f"%{clean_s}%"}).fetchall()
+        suppliers_found = db.execute(text("SELECT * FROM suppliers WHERE LOWER(supplier_name) LIKE :q"), {"q": f"%{clean_s}%"}).fetchall()
         
-        if not suppliers_found and len(clean_s) > 2:
-            all_s = db.execute(text("SELECT id, supplier_name FROM suppliers")).fetchall()
-            s_map = {s.supplier_name.lower(): s.id for s in all_s}
-            matches = difflib.get_close_matches(clean_s, s_map.keys(), n=1, cutoff=0.5)
-            if matches:
-                suppliers_found = db.execute(text("SELECT * FROM suppliers WHERE id = :id"), {"id": s_map[matches[0]]}).fetchall()
-
         if suppliers_found:
+            supplier_output = []
             for s in suppliers_found:
                 inv_items = db.execute(text("""
                     SELECT i.name, SUM(CASE WHEN LOWER(t.txn_type) = 'in' THEN t.quantity ELSE -t.quantity END) as current_stock
@@ -113,91 +152,25 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
                     WHERE t.supplier_id = :sid GROUP BY i.id, i.name HAVING current_stock != 0
                 """), {"sid": s.id}).fetchall()
 
-                final_output.append({
+                supplier_output.append({
                     "type": "result", 
                     "supplier": {
                         "id": s.id, "name": s.supplier_name, "code": s.supplier_code,
-                        "email": getattr(s, 'email', 'N/A') if getattr(s, 'email', None) else 'N/A', 
-                        "gstin": getattr(s, 'gstin', 'N/A') if getattr(s, 'gstin', None) else 'N/A',
-                        "state": getattr(s, 'state', 'N/A') if getattr(s, 'state', None) else 'N/A', 
-                        "city": getattr(s, 'city', 'N/A') if getattr(s, 'city', None) else 'N/A', 
-                        "mobile": getattr(s, 'mobile', 'N/A') if getattr(s, 'mobile', None) else 'N/A'
+                        "email": getattr(s, 'email', None) or 'N/A', 
+                        "gstin": getattr(s, 'gstin', None) or 'N/A',
+                        "state": getattr(s, 'state', None) or 'N/A', 
+                        "city": getattr(s, 'city', None) or 'N/A', 
+                        "mobile": getattr(s, 'mobile', None) or 'N/A'
                     },
                     "items": [{"name": row.name, "stock": float(row.current_stock)} for row in inv_items]
                 })
+            return {"results": supplier_output}
 
-    # 🧾 STEP 3.5: PURCHASE ORDER (PO) LOGIC
-    po_keywords = ["po", "purchase order", "order", "mhel/po"]
-    is_po_intent = any(k in low_q for k in po_keywords) or intent == "po_search"
-
-    if is_po_intent:
-        noise = r'\b(bhai|ki|hai|dikhao|show|me|purchase|order|po|details|ka|ke|latest)\b'
-        clean_po = re.sub(noise, '', low_q).strip()
-        
-        if not clean_po or len(clean_po) < 2:
-            query = text("""
-                SELECT p.purchase_order_date, p.purchase_order_no, s.supplier_name, p.total_amount, p.advance, p.balance_amount
-                FROM purchase_orders p
-                LEFT JOIN suppliers s ON p.supplier_id = s.id
-                ORDER BY p.purchase_order_date DESC LIMIT 5
-            """)
-            po_results = db.execute(query).fetchall()
-        else:
-            query = text("""
-                SELECT p.purchase_order_date, p.purchase_order_no, s.supplier_name, p.total_amount, p.advance, p.balance_amount
-                FROM purchase_orders p
-                LEFT JOIN suppliers s ON p.supplier_id = s.id
-                WHERE LOWER(p.purchase_order_no) LIKE :q OR LOWER(s.supplier_name) LIKE :q
-                ORDER BY p.purchase_order_date DESC LIMIT 5
-            """)
-            po_results = db.execute(query, {"q": f"%{clean_po}%"}).fetchall()
-
-        if po_results:
-            results = []
-            for p in po_results:
-                results.append({
-                    "type": "po_result",
-                    "po_no": p.purchase_order_no,
-                    "date": str(p.purchase_order_date),
-                    "supplier": p.supplier_name or "Unknown",
-                    "total": float(p.total_amount or 0),
-                    "advance": float(p.advance or 0),
-                    "balance": float(p.balance_amount or 0)
-                })
-            return {"results": results}
-
-    # 📁 STEP 3.6: PROJECT LOGIC
-    project_keywords = ["project", "projects"]
-    is_project_intent = any(k in low_q for k in project_keywords) or intent == "project_search"
-
-    if is_project_intent:
-        noise = r'\b(bhai|ki|hai|dikhao|show|me|project|projects|details|ka|ke|latest)\b'
-        clean_proj = re.sub(noise, '', low_q).strip()
-        
-        if not clean_proj or len(clean_proj) < 2:
-            query = text("SELECT * FROM projects ORDER BY start_date DESC LIMIT 5")
-            proj_results = db.execute(query).fetchall()
-        else:
-            query = text("SELECT * FROM projects WHERE LOWER(project_name) LIKE :q ORDER BY start_date DESC LIMIT 5")
-            proj_results = db.execute(query, {"q": f"%{clean_proj}%"}).fetchall()
-
-        if proj_results:
-            results = []
-            for p in proj_results:
-                results.append({
-                    "type": "project_result",
-                    "project_name": getattr(p, 'project_name', 'Unknown Project'),
-                    "category": getattr(p, 'category', 'N/A'),
-                    "amount": float(getattr(p, 'estimated_amount', 0)),
-                    "start_date": str(getattr(p, 'start_date', 'N/A')),
-                    "end_date": str(getattr(p, 'end_date', 'N/A')),
-                    "client": str(getattr(p, 'client', 'N/A')) 
-                })
-            return {"results": results}
-
-    # 🎯 STEP 4.1: EXACT MATCH OVERRIDE (Fixes number stripping loop)
-    exact_inv = db.execute(text("SELECT id, name, classification, placement FROM inventories WHERE LOWER(name) = :q LIMIT 1"), {"q": low_q}).fetchone()
+    # 📦 STEP 7: INVENTORY PRIORITY GATE
+    inv_output = []
     
+    # 7.1 Exact Match Override
+    exact_inv = db.execute(text("SELECT id, name, classification, placement FROM inventories WHERE LOWER(name) = :q LIMIT 1"), {"q": low_q}).fetchone()
     if exact_inv:
         txns = db.execute(text("SELECT txn_type, quantity FROM stock_transactions WHERE inventory_id = :id"), {"id": exact_inv.id}).fetchall()
         m, f, sf = 0, 0, 0
@@ -208,27 +181,29 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
             elif "semi" in cls: sf += val
             else: f += val
         
-        final_output.append({
+        inv_output.append({
             "type": "result",
             "inventory": {
-                "id": exact_inv.id, "name": exact_inv.name, "classification": cls.upper(),
-                "placement": getattr(exact_inv, 'placement', 'Not Assigned')
+                "id": exact_inv.id, 
+                "name": exact_inv.name, 
+                "classification": cls.upper() if cls else "N/A",
+                "placement": getattr(exact_inv, 'placement', None) or "Not Assigned"
             },
             "machining_stock": m, "finish_stock": f, "semi_finish_stock": sf, "total_stock": (m + f + sf)
         })
-        return {"results": final_output} 
+        return {"results": inv_output} 
 
-    # 🚀 STEP 4.2: GENERAL INVENTORY SEARCH (Fuzzy & Multi-Item)
+    # 7.2 General Inventory Search (Fuzzy & Multi-Item)
     raw_targets = ai_data.get("specific_items", [])
-    
     ai_exclusions = ["supplier", "suppliers", "details", "list", "all", "suplier", "suppler", "supllier", "vendor", "party", "po", "purchase order", "project"]
     search_targets = [t for t in raw_targets if str(t).lower() not in ai_exclusions]
     
-    inv_noise = r'\b(chahiye|kya|ki|status|hai|aaj|what|is|the|stock|for|details|ka|ke|bata|batao|do|please|yaar|mujhe|of|show|me|our|item|supplier|suppliers|suplier|suppler|supllier|vendor|party|kon|list|all|project|po)\b'
+    inv_noise = r'\b(chahiye|kya|ki|status|hai|aaj|what|is|the|stock|for|details|ka|ke|bata|batao|do|please|yaar|mujhe|of|show|me|our|item|kon|all)\b'
     clean_q = re.sub(inv_noise, '', low_q).strip()
     clean_q = re.sub(r'\b\d+\b', '', clean_q)
     clean_q = re.sub(r'\s+', ' ', clean_q).strip()
     
+    # Split multi-item searches based on "and", "or", "aur", or commas
     if not search_targets: 
         if clean_q: 
             if re.search(r'\b(and|or|aur)\b|,', clean_q):
@@ -237,7 +212,6 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
                 search_targets = [clean_q]
     
     seen_ids = set() 
-
     for target in search_targets:
         t_str = str(target).strip()
         if not t_str or len(t_str) < 2: continue
@@ -258,7 +232,8 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
                 if c_name not in inv_map: inv_map[c_name] = []
                 inv_map[c_name].append(i)
                 
-            matches = difflib.get_close_matches(t_str, inv_map.keys(), n=5, cutoff=0.4)
+            # Cutoff 0.7 to prevent Supplier vs Inventory typos
+            matches = difflib.get_close_matches(t_str, inv_map.keys(), n=5, cutoff=0.7)
             if matches:
                 inv_res = []
                 for m in matches: inv_res.extend(inv_map[m])
@@ -277,28 +252,70 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
                 elif "semi" in cls: sf += val
                 else: f += val
             
-            final_output.append({
+            inv_output.append({
                 "type": "result",
                 "inventory": {
-                    "id": inv.id, "name": inv.name, "classification": cls.upper(),
-                    "placement": getattr(inv, 'placement', 'Not Assigned')
+                    "id": inv.id, 
+                    "name": inv.name, 
+                    "classification": cls.upper() if cls else "N/A",
+                    "placement": getattr(inv, 'placement', None) or "Not Assigned"
                 },
                 "machining_stock": m, "finish_stock": f, "semi_finish_stock": sf, "total_stock": (m + f + sf)
             })
             
         elif len(inv_res) > 1:
-            final_output.append({
+            inv_output.append({
                 "type": "dropdown", "message": f"Select an item for '{target}':",
                 "items": [{"id": i.id, "name": i.name} for i in inv_res]
             })
 
-    # 🎉 RETURN ALL GATHERED DATA AT ONCE
-    if final_output:
-        return {"results": final_output}
+    if inv_output:
+        return {"results": inv_output}
 
-    # 🆘 FALLBACK 2: TRUE RANDOM INVENTORY SUGGESTIONS
+    # 🏭 STEP 8: SUPPLIER FALLBACK
+    if len(low_q) > 2:
+        all_s = db.execute(text("SELECT supplier_name FROM suppliers")).fetchall()
+        s_names = [s.supplier_name.lower() for s in all_s]
+        
+        is_implicit_supplier = False
+        if any(low_q in name for name in s_names):
+            is_implicit_supplier = True
+        elif difflib.get_close_matches(low_q, s_names, n=1, cutoff=0.6):
+            is_implicit_supplier = True
+            
+        if is_implicit_supplier:
+            suppliers_found = db.execute(text("SELECT * FROM suppliers WHERE LOWER(supplier_name) LIKE :q"), {"q": f"%{low_q}%"}).fetchall()
+            if not suppliers_found:
+                s_map = {s.supplier_name.lower(): s.supplier_name for s in all_s}
+                matches = difflib.get_close_matches(low_q, s_map.keys(), n=1, cutoff=0.5)
+                if matches:
+                    suppliers_found = db.execute(text("SELECT * FROM suppliers WHERE LOWER(supplier_name) = :q"), {"q": matches[0]}).fetchall()
+                    
+            if suppliers_found:
+                supplier_output = []
+                for s in suppliers_found:
+                    inv_items = db.execute(text("""
+                        SELECT i.name, SUM(CASE WHEN LOWER(t.txn_type) = 'in' THEN t.quantity ELSE -t.quantity END) as current_stock
+                        FROM inventories i JOIN stock_transactions t ON i.id = t.inventory_id
+                        WHERE t.supplier_id = :sid GROUP BY i.id, i.name HAVING current_stock != 0
+                    """), {"sid": s.id}).fetchall()
+
+                    supplier_output.append({
+                        "type": "result", 
+                        "supplier": {
+                            "id": s.id, "name": s.supplier_name, "code": s.supplier_code,
+                            "email": getattr(s, 'email', None) or 'N/A', 
+                            "gstin": getattr(s, 'gstin', None) or 'N/A',
+                            "state": getattr(s, 'state', None) or 'N/A', 
+                            "city": getattr(s, 'city', None) or 'N/A', 
+                            "mobile": getattr(s, 'mobile', None) or 'N/A'
+                        },
+                        "items": [{"name": row.name, "stock": float(row.current_stock)} for row in inv_items]
+                    })
+                return {"results": supplier_output}
+
+    # 🆘 STEP 9: TRUE RANDOM INVENTORY SUGGESTIONS
     all_suggestions = db.execute(text("SELECT id, name FROM inventories")).fetchall()
-    
     if all_suggestions:
         suggestions = random.sample(all_suggestions, min(5, len(all_suggestions)))
         return {"results": [{
