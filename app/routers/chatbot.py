@@ -88,31 +88,28 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
         return {"results": [{"type": "analytics_chart", "title": title, "chart_type": "bar", "data": stock_data[:10]}]}
 
     # 🧾 STEP 4: PURCHASE ORDER (PO) LOGIC
-    po_keywords = ["po", "purchase order", "order", "mhel/po"]
-    if any(k in low_q for k in po_keywords) or intent == "po_search":
-        noise = r'\b(bhai|ki|hai|dikhao|show|me|purchase|order|po|details|ka|ke|latest)\b'
-        clean_po = re.sub(noise, '', low_q).strip()
+    if intent == "po_search":
+        ai_target = ai_data.get("search_target", "").strip()
         
-        base_query = """
-            SELECT p.*, s.supplier_name 
-            FROM purchase_orders p
-            LEFT JOIN suppliers s ON p.supplier_id = s.id
-        """
-        if not clean_po or len(clean_po) < 2:
-            query = text(base_query + " ORDER BY p.id DESC LIMIT 5")
+        base_query = "SELECT * FROM purchase_orders"
+        
+        if not ai_target:
+            # General list
+            query = text(base_query + " ORDER BY id DESC LIMIT 5")
             po_results = db.execute(query).fetchall()
         else:
-            query = text(base_query + " WHERE LOWER(p.purchase_order_no) LIKE :q OR LOWER(s.supplier_name) LIKE :q ORDER BY p.id DESC LIMIT 5")
-            po_results = db.execute(query, {"q": f"%{clean_po}%"}).fetchall()
+            # Specific search - simplified to avoid column errors
+            query = text(base_query + " WHERE LOWER(purchase_order_no) LIKE :q ORDER BY id DESC LIMIT 5")
+            po_results = db.execute(query, {"q": f"%{ai_target.lower()}%"}).fetchall()
 
         if po_results:
             results = []
             for p in po_results:
                 results.append({
                     "type": "po_result",
-                    "po_no": getattr(p, 'purchase_order_no', 'N/A'),
-                    "date": str(getattr(p, 'purchase_order_date', getattr(p, 'date', 'N/A'))),
-                    "supplier": getattr(p, 'supplier_name', 'Unknown'),
+                    "po_no": str(getattr(p, 'purchase_order_no', 'N/A')),
+                    "date": str(getattr(p, 'purchase_order_date', 'N/A')),
+                    "supplier": "Check Details", # Simplified to avoid JOIN errors
                     "total": float(getattr(p, 'total_amount', 0)),
                     "advance": float(getattr(p, 'advance', 0)),
                     "balance": float(getattr(p, 'balance_amount', 0))
@@ -120,26 +117,25 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
             return {"results": results}
 
     # 📁 STEP 5: PROJECT LOGIC
-    project_keywords = ["project", "projects"]
-    if any(k in low_q for k in project_keywords) or intent == "project_search":
-        noise = r'\b(bhai|ki|hai|dikhao|show|me|project|projects|details|ka|ke|latest|kon|se|kya|batao|list|all|do)\b'
-        clean_proj = re.sub(noise, '', low_q).strip()
+    if intent == "project_search":
+        ai_target = ai_data.get("search_target", "").strip()
         
-        if not clean_proj or len(clean_proj) < 2:
+        if not ai_target:
             query = text("SELECT * FROM projects ORDER BY id DESC LIMIT 5")
             proj_results = db.execute(query).fetchall()
         else:
-            query = text("SELECT * FROM projects WHERE LOWER(project_name) LIKE :q OR LOWER(name) LIKE :q ORDER BY id DESC LIMIT 5")
-            proj_results = db.execute(query, {"q": f"%{clean_proj}%"}).fetchall()
+            # Search ONLY project_name to prevent crashes
+            query = text("SELECT * FROM projects WHERE LOWER(project_name) LIKE :q ORDER BY id DESC LIMIT 5")
+            proj_results = db.execute(query, {"q": f"%{ai_target.lower()}%"}).fetchall()
 
         if proj_results:
             results = []
             for p in proj_results:
                 results.append({
                     "type": "project_result",
-                    "project_name": getattr(p, 'project_name', getattr(p, 'name', 'Unknown')),
-                    "category": getattr(p, 'category', 'N/A'),
-                    "amount": float(getattr(p, 'estimated_amount', getattr(p, 'budget', 0))),
+                    "project_name": str(getattr(p, 'project_name', 'Unknown')),
+                    "category": str(getattr(p, 'category', 'N/A')),
+                    "amount": float(getattr(p, 'estimated_amount', 0)),
                     "start_date": str(getattr(p, 'start_date', 'N/A')),
                     "end_date": str(getattr(p, 'end_date', 'N/A')),
                     "client": str(getattr(p, 'client', 'Internal')) 
