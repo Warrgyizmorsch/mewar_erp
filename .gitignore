@@ -9,3 +9,6 @@ __pycache__/
 
 # Ignore IDE settings
 .vscode/
+
+# Ignore test files
+test_bot.py

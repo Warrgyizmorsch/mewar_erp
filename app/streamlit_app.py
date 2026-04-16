@@ -6,8 +6,8 @@ import datetime
 # ==========================================
 # 🚀 API CONFIGURATION
 # ==========================================
-API_BASE = "https://mewar-erp.vercel.app"
-# API_BASE = "http://127.0.0.1:8000"
+#API_BASE = "https://mewar-erp.vercel.app"
+API_BASE = "http://127.0.0.1:8000"
 CHAT_URL = f"{API_BASE}/chatbot/"
 
 st.set_page_config(page_title="Mewar ERP AI", page_icon="🧠", layout="centered")
@@ -35,7 +35,7 @@ def render_bot_response(data, msg_idx):
     for res in results_list:
         res_type = res.get("type")
 
-        # 🟢 CASE 1: EXACT STOCK MATCH (Includes Placement/Location)
+        # 🟢 CASE 1: EXACT STOCK MATCH
         if res_type == "result" and "inventory" in res:
             inv = res["inventory"]
             st.success(f"📦 **{inv['name']}**")
@@ -46,7 +46,6 @@ def render_bot_response(data, msg_idx):
             c3.metric("Semi-Finish", res.get("semi_finish_stock", 0))
             c4.metric("Machining", res.get("machining_stock", 0))
             
-            # ✅ Added Placement/Location to Caption
             st.caption(f"Item ID: #{inv['id']} | Category: {inv.get('classification', 'N/A')} | 📍 Location: {inv.get('placement', 'Not Assigned')}")
         
         # 🔵 CASE 2: SUPPLIER MATCH 
@@ -74,7 +73,7 @@ def render_bot_response(data, msg_idx):
                     st.info("📦 No active inventory currently in stock from this supplier.")
 
         # 🧾 CASE 3: PURCHASE ORDER (PO) RESULT
-        elif res_type == "po_result":
+        elif res_type == "po":
             st.info(f"🧾 **Purchase Order: {res.get('po_no')}**")
             st.write(f"**Supplier:** {res.get('supplier')}")
             st.caption(f"📅 **Date:** {res.get('date')}")
@@ -90,16 +89,28 @@ def render_bot_response(data, msg_idx):
                 c3.success(f"Balance: ₹0.00")
             st.write("---")
 
-        # 📁 CASE 4: PROJECT RESULT (With Live Timer)
-        elif res_type == "project_result":
+        # 📁 CASE 4: PROJECT RESULT (Upgraded with Stage & Comments)
+        elif res_type == "project":
             st.info(f"📁 **Project: {res.get('project_name')}**")
             
             p1, p2 = st.columns(2)
-            p1.write(f"**Category:** {res.get('category', 'N/A')}")
+            p1.write(f"**Status/Priority:** {res.get('category', 'N/A')}")
             
-            client = res.get('client', 'None')
-            p2.write(f"**Client:** {client if client and client != 'None' else 'Internal'}")
+            # ✅ STAGE (Progress Bar logic)
+            stage_val = res.get('stage', '0%').replace('%', '')
+            try:
+                progress = int(stage_val) / 100
+            except:
+                progress = 0.0
             
+            st.write(f"**🏗️ Project Stage: {stage_val}%**")
+            st.progress(progress)
+            
+            # ✅ COMMENTS (Expander mein taaki UI ganda na ho)
+            with st.expander("💬 View Project Comments"):
+                st.write(res.get('comments', 'No comments available.'))
+
+            # Timeline Logic
             end_date_str = str(res.get('end_date', 'N/A'))
             st.caption(f"📅 **Timeline:** {res.get('start_date')}  ➔  {end_date_str}")
             
@@ -118,9 +129,9 @@ def render_bot_response(data, msg_idx):
                         st.error(f"⚠️ **Overdue by {abs(days_left)} Days**")
                 except: pass
             
-            st.metric("Estimated Amount", f"₹{res.get('amount', 0):,.2f}")
-            st.write("---")
-
+            # ✅ AMOUNT (Budget)
+            st.metric("Estimated Budget", f"₹{res.get('amount', 0):,.2f}")
+            st.divider()
         # 🟡 CASE 5: DROPDOWN MENU
         elif res_type == "dropdown":
             st.warning(res.get("message", "Select an item:"))
@@ -157,7 +168,7 @@ def render_bot_response(data, msg_idx):
             else:
                 st.info("No data available for this report.")
         
-        # 💬 CASE 8: Simple Text (Chat/Errors)
+        # 💬 CASE 8: Simple Text
         elif "message" in res and not res_type:
             st.write(res["message"])
         elif res_type == "chat":
@@ -177,6 +188,29 @@ with st.sidebar:
 
 st.title("ERP Intelligence 🧠")
 
+# 🚀 THE NEW HYBRID UI (MATCHING YOUR SCREENSHOT)
+if not st.session_state.messages:
+    with st.container(border=True):
+        st.markdown("### Hi, Welcome!")
+        st.markdown(
+            "<span style='color: #666;'>Search for supplier, inventory, and stock details, or speak using the microphone.</span>", 
+            unsafe_allow_html=True
+        )
+        st.write("") # Spacing
+        
+        c1, c2, c3, c4 = st.columns(4)
+        
+        if c1.button("👥 Supplier", use_container_width=True):
+            set_next_query("show all suppliers")
+        if c2.button("📦 Inventory", use_container_width=True):
+            set_next_query("show latest inventory")
+        if c3.button("🛒 Purchase Order", use_container_width=True):
+            set_next_query("latest po")
+        if c4.button("📁 Project", use_container_width=True):
+            set_next_query("project kon kon se chal rahe hai")
+            
+    st.write("") # Spacing
+
 def ask_erp(query):
     headers = {"Content-Type": "application/json"}
     history = [{"role": m["role"], "content": m.get("raw_content", "")} for m in st.session_state.messages]
@@ -194,7 +228,7 @@ for idx, msg in enumerate(st.session_state.messages):
         else:
             st.markdown(msg.get("raw_content", ""))
 
-u_input = st.chat_input("Ask about inventory, POs, or Projects...")
+u_input = st.chat_input("Ask about inventory, POs, Projects, or Suppliers...")
 final_query = u_input or st.session_state.next_query
 
 if final_query:
@@ -208,8 +242,18 @@ if final_query:
     
     with st.chat_message("assistant"):
         render_bot_response(data, len(st.session_state.messages))
+        
+        # 🧠 FIX: Backend ke "results" array me se asali message nikalna!
+        bot_text_list = []
+        for res in data.get("results", [{"message": data.get("message", "Processed.")}]):
+            if "message" in res:
+                bot_text_list.append(str(res["message"]))
+        
+        actual_bot_message = " ".join(bot_text_list) if bot_text_list else "Data rendered."
+
         st.session_state.messages.append({
             "role": "assistant", 
             "data": data, 
-            "raw_content": data.get("message", "Processed.")
+            "raw_content": actual_bot_message # Ab history me "Processed." nahi, asli baat jayegi!
         })
+        

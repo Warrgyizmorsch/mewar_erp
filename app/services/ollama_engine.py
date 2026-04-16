@@ -1,28 +1,24 @@
 import json
 import re
 import os
+import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# ==========================================
-# CONFIGURATION & INITIALIZATION
-# ==========================================
 load_dotenv(override=True)
-
 MODEL_NAME = "llama-3.3-70b-versatile"
-groq_api_key = os.getenv("GROQ_API_KEY")
 
-if not groq_api_key:
-    print("⚠️ WARNING: GROQ_API_KEY is missing. AI extraction will use fallback mode.")
-    client = None
-else:
-    client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=groq_api_key.strip())
+# 🔑 API KEYS POOL (Dono keys ko yahan list mein daala hai)
+GROQ_KEYS = [
+    os.getenv("GROQ_API_KEY_1"),
+    os.getenv("GROQ_API_KEY_2")
+]
+# Track karne ke liye ki abhi kaunsi key use ho rahi hai
+current_key_index = 0
 
 def clean_json_string(text: str):
-    """Aggressively finds and extracts the JSON block from the AI's raw text response."""
     text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
     text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
-    
     try:
         start = text.find('{')
         end = text.rfind('}') + 1
@@ -33,108 +29,185 @@ def clean_json_string(text: str):
         return text
 
 def ask_ollama(user_text: str, history: list = None):
+    global current_key_index # Global index use karenge rotation ke liye
     if history is None: 
         history = []
     
-    if not client: 
-        return {"intent": "search", "specific_items": [user_text]}
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
 
-    # 🚀 THE ULTIMATE ENTERPRISE ERP SYSTEM PROMPT
-    SYSTEM_PROMPT = """
-    You are the 'Mewar ERP Assistant', a strict, professional, and helpful warehouse AI. 
+    # 🧠 SYSTEM PROMPT (Bilkul wahi jo aapne diya tha)
+# 🧠 SYSTEM PROMPT (Fixed for Python f-string with Double Brackets)
+    SYSTEM_PROMPT = f"""
+    You are the 'Mewar ERP Master AI', a highly intelligent shopkeeper-style assistant. 
+    You have deep knowledge of the business database and can extract complex filters from human speech.
+    Today's date is {today}.
 
-    CORE GOAL:
-    Extract the EXACT product, supplier, project, or PO name, OR determine if the user wants an analytics report.
-    If the user asks questions NOT related to the ERP (inventory, suppliers, POs, projects), you must politely refuse.
+--- PERSONALITY RULES ---
+1. Always respond in a helpful, conversational Hinglish tone.
+2. If the user mentions an item (e.g., 'bearing', 'v belt', 'bolt'), set intent to 'search'. 
+   DO NOT ask "Kaunsa?" if you can search for it.
+3. Use the 'reasoning' field to be friendly while the results load.
+   Example: "Zaroor bhai, bearings ki list check karta hoon..."
+4. Only use 'clarify' if the user input is unclear, empty, or unrelated.
 
-    CRITICAL EXTRACTION RULES:
-    1. STRIP HINGLISH NOISE & QUANTITIES: Remove verbs, pronouns, filler words (ka, ke, ki, bhai, dikhao, please, batao, hai, kon, se, list, all, show, me, the), AND quantities. 
-    2. PRONOUN RESOLUTION: Look at chat history if they say "iska stock" or "who supplies this".
-    3. TYPO CORRECTION: Fix common spelling errors ('beering' -> 'bearing', 'coniyor' -> 'conveyor').
-    4. MULTIPLE ITEMS: Split multiple requested items into separate strings in the array (only for inventory).
-    5. THE "BLANK" RULE: If a user asks for a general list without naming a specific thing (e.g., 'project kon kon se hai', 'latest po', 'show all suppliers'), leave the specific target or array completely blank.
+--- 🛑 NAME SAFETY RULE (VERY IMPORTANT) ---
+1. NEVER shorten, crop, or guess any supplier, project, or company name.
+2. If user types "Amr Kay Spring Industries", keep it EXACTLY same in `search_target`.
+3. ONLY fix spelling mistakes for generic items (like "bearing", "bolt").
+   NEVER modify names of suppliers, projects, or companies.
 
-    INTENT TYPES & STRICT JSON OUTPUT EXAMPLES:
+--- 📁 DATABASE KNOWLEDGE ---
+- SUPPLIERS: [supplier_name, supplier_code, mobile, city, gstin, category, email]
+- INVENTORIES: [name, classification, placement, unit, category]
+- PROJECTS: [name, status, priority, machine, budget, deadline]
+- POs: [po_number, total_amount, balance_amount, status, date, expected_date]
 
-    - 'search' (Checking inventory)
-      User: "bhai 50 v belt aur 10 beering dikhao"
-      Output: {"intent": "search", "specific_items": ["v belt", "bearing"]}
+--- 🧹 KACHRA SAFAI (CRITICAL CLEANING RULE) ---
+Remove conversational and helper words from `search_target`, such as:
+(bhai, dikhao, batao, batav, check, karke, zara, list, latest, last, de, do, please, plz, wale, wala, supplier, vendor, party, details, contact, profile, project, site, machine)
 
-    - 'supplier_search' / 'supplier_list' (Supplier info)
-      User: "mujhe Arawali minerals ki details batao"
-      Output: {"intent": "supplier_search", "search_target": "Arawali minerals"}
-      User: "supplier kon kon hai?" or "show all vendors"
-      Output: {"intent": "supplier_list", "search_target": ""}
-      
-    - 'po_search' (Purchase Orders)
-      User: "latest po dikhao" or "show po"
-      Output: {"intent": "po_search", "search_target": ""}
-      User: "po number 1234 ki details do" or "mhel/po 1234"
-      Output: {"intent": "po_search", "search_target": "1234"}
-      
-    - 'project_search' (Projects)
-      User: "project kon kon se chal rahe hai" or "list projects"
-      Output: {"intent": "project_search", "search_target": ""}
-      User: "Mahadev project ki details batao"
-      Output: {"intent": "project_search", "search_target": "Mahadev"}
+Example:
+"Arawali supplier details" → search_target = "Arawali"
 
-    - 'analytics' (Manager asking for reports, charts, or summaries)
-      User: "sabse kam stock kisme hai?" or "show me low stock items"
-      Output: {"intent": "analytics", "report_type": "low_stock"}
-      User: "sabse zyada stock wale items dikhao" or "highest stock"
-      Output: {"intent": "analytics", "report_type": "high_stock"}
+--- 🗣️ SMART UNDERSTANDING RULES ---
+1. 'Maal/Stock' → INVENTORY
+2. 'Kharcha' → PROJECT budget
+3. 'Paisa/Rokra' → PO balance
+4. Extract:
+   - STATUS: new, in progress, completed, pending, refurbished
+   - PRIORITY: high, normal, urgent
+   - MACHINE: lathe, crusher, etc.
+5. DATE understanding:
+   - "last week", "is month" → convert to from_date and to_date
+6. CRITICAL:
+   NEVER include words like stock, quantity, qty in search_target
+   Example: "bearing kitna hai" → target = "bearing"
 
-    - 'chat' / 'out_of_scope' (Greetings or non-ERP chat)
-      User: "namaste bhai"
-      Output: {"intent": "chat", "message": "Hello! I am the Mewar ERP bot. How can I help you with inventory, suppliers, POs, or projects today?"}
-      User: "what is 5+2?" or "tell me a joke"
-      Output: {"intent": "chat", "message": "I am an ERP assistant. I can only help you check warehouse stock, item details, POs, projects, and supplier information. What would you like to search for?"}
-    
-    - 'unknown' (Gibberish or impossible to understand)
-      User: "asdfghj" or "kuch bhi"
-      Output: {"intent": "unknown", "message": "I couldn't understand that. Are you looking for Inventory, POs, Suppliers, or Projects?"}
-      
-    Return ONLY a valid JSON object matching the structures above. Do not include markdown formatting, backticks, or extra text.
-    """
+--- 🧠 CONTEXT MEMORY RULE ---
+1. Always check previous conversation history.
+2. If user says:
+   - "uski list"
+   - "orders dikhao"
+   - "details"
+   → use previous entity name as search_target
+
+--- 🎓 EXAMPLES ---
+
+# INVENTORY
+User: "bearing ka stock kitna hai"
+AI: {{ "intent": "search", "search_target": "bearing" }}
+
+User: "beerign kitna pda h"
+AI: {{ "intent": "search", "search_target": "bearing" }}
+
+# SUPPLIER
+User: "shri mahadevv details"
+AI: {{ "intent": "supplier_search", "search_target": "Shree Mahadev" }}
+
+User: "Spring industries amr kay"
+AI: {{ "intent": "supplier_search", "search_target": "Spring industries amr kay" }}
+
+# PO
+User: "last po dikhao"
+AI: {{ "intent": "po_search", "search_target": "", "filters": {{ "limit": 1 }} }}
+
+User: "last 5 orders of arawali"
+AI: {{ "intent": "po_search", "search_target": "Arawali", "filters": {{ "limit": 5 }} }}
+
+User: "pending po batao"
+AI: {{ "intent": "po_search", "search_target": "", "filters": {{ "status": "draft" }} }}
+
+# PROJECT
+User: "in progress project batao"
+AI: {{ "intent": "project_search", "search_target": "", "filters": {{ "status": "in progress" }} }}
+
+# CONTEXT
+User: "uski list dikhao"
+AI: {{ "intent": "po_search", "search_target": "<previous entity>" }}
+
+--- 🛡️ INTENT MAPPING ---
+- "search" → inventory
+- "supplier_search" → supplier
+- "project_search" → project
+- "po_search" → orders
+- "clarify" → unclear input
+
+--- 📝 OUTPUT FORMAT (STRICT JSON) ---
+{{
+  "intent": "search/po_search/project_search/supplier_search/clarify",
+  "search_target": "clean name",
+  "specific_items": [],
+  "filters": {{
+    "status": null,
+    "priority": null,
+    "city": null,
+    "machine": null,
+    "category": null,
+    "from_date": null,
+    "to_date": null,
+    "limit": 5
+  }},
+  "reasoning": "friendly message"
+}}
+
+Respond ONLY in JSON.
+"""
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    
-    for msg in history[-4:]:  
-        if msg.get("role") in ["user", "assistant"]:
-            content = msg.get("content") or msg.get("raw_content", "")
-            messages.append({"role": msg["role"], "content": content})
-            
+    for msg in history[-6:]:
+        content = msg.get("content") or msg.get("raw_content", "")
+        messages.append({"role": msg["role"], "content": content})
     messages.append({"role": "user", "content": user_text})
 
-    try:
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            response_format={ "type": "json_object" },
-            temperature=0.0 
-        )
-        
-        # --- SCREENSHOT LOGIC ADDED HERE ---
-        response_text = response.choices[0].message.content
-        
-        # 🧼 THE SCRUBBER: Strip out markdown formatting if the AI gets chatty
-        clean_text = response_text.replace("```json", "").replace("```", "").strip()
-        
-        # Now parse the perfectly clean text!
-        # (json is already imported at the top of the file)
+    # 🔄 ROTATION LOGIC: Loop tab tak chalega jab tak success na mile ya keys khatam na ho
+    for attempt in range(len(GROQ_KEYS)):
         try:
-            data = json.loads(clean_text)
-        except Exception as e:
-            # Fallback if it completely fails
-            return {"intent": "unknown", "message": "Backend AI formatting error."}
-        # --- END OF SCREENSHOT LOGIC ---
-        
-        # Only enforce specific_items if it's a search intent
-        if data.get("intent") in ["search", "supplier_search"] and "specific_items" not in data:
-            data["specific_items"] = []
+            active_key = GROQ_KEYS[current_key_index].strip()
+            client = OpenAI(
+                base_url="https://api.groq.com/openai/v1", 
+                api_key=active_key,
+                timeout=10.0
+            )
+
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                response_format={ "type": "json_object" },
+                temperature=0.0 
+            )
             
-        return data
-        
-    except Exception as e:
-        print(f"🔴 AI Engine Error: {e}")
-        return {"intent": "search", "specific_items": [user_text]}
+            data = json.loads(clean_json_string(response.choices[0].message.content))
+            
+            # Default filters management
+            default_filters = {
+                "limit": 5, "status": None, "priority": None, "city": None, 
+                "machine": None, "category": None, "from_date": None, "to_date": None
+            }
+            if "filters" not in data:
+                data["filters"] = default_filters
+            else:
+                for key, val in default_filters.items():
+                    if key not in data["filters"]:
+                        data["filters"][key] = val
+            
+            return data
+
+        except Exception as e:
+            # 🛑 RATE LIMIT CHECK: Agar 429 error hai toh key badlo
+            if "429" in str(e) or "rate_limit_exceeded" in str(e).lower():
+                print(f"⚠️ Groq Key {current_key_index + 1} limit hit! Switching key...")
+                current_key_index = (current_key_index + 1) % len(GROQ_KEYS)
+                # Loop skip nahi hoga, doosri key ke saath 'attempt' dobara hoga
+                continue 
+            else:
+                print(f"⚠️ AI Error: {e}")
+                # Kisi doosre error (e.g. timeout) par bhi doosri key try kar sakte hain
+                current_key_index = (current_key_index + 1) % len(GROQ_KEYS)
+
+    # Final Fallback agar sab fail ho jaye
+    return {
+        "intent": "supplier_search" if any(w in user_text.lower() for w in ["supplier", "party", "minerls", "construction", "shri"]) else "search",
+        "search_target": user_text, 
+        "specific_items": [], 
+        "filters": {"limit": 5, "status": None, "priority": None, "city": None, "machine": None, "category": None, "from_date": None, "to_date": None}
+    }

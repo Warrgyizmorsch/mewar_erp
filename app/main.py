@@ -5,8 +5,20 @@ from app.routers.auth import router as auth_router
 from app.routers.inventory_dropdown import router as inventory_router
 # from app.routers.supplier_search import router as supplier_search_router
 from app.routers.inventory_smart import router as inventory_smart_router
+from app.db.database import get_db
+from app.routers.chatbot import load_faiss_once
 
 app = FastAPI()
+
+@app.on_event("startup")
+def startup_event():
+    print("🚀 App starting up... Initializing FAISS memory.")
+    db_gen = get_db()
+    db = next(db_gen) 
+    try:
+        load_faiss_once(db)
+    finally:
+        db_gen.close()
 
 app.include_router(chatbot_router)
 app.include_router(auth_router)
