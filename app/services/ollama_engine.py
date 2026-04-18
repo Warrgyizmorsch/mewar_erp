@@ -185,14 +185,21 @@ Respond ONLY with a raw, valid JSON object. DO NOT wrap the output in markdown c
             
             return data
 
-        # Agar JSON padhne mein error aaye
+        # Agar JSON padhne mein error aaye (SMART DEGRADATION)
         except json.JSONDecodeError as jde:
-            print(f"❌ JSON Decode Error. Raw content from AI:\n{raw_content}\nError: {jde}")
+            print(f"❌ JSON Decode Error. Raw content from AI:\n{raw_content}")
+            
+            # Error dikhane ke bajaye, hum user ka input direct use kar lenge!
+            fallback_intent = "supplier_search" if any(w in user_text.lower() for w in ["supplier", "party", "minerlas", "minerals", "construction", "shri"]) else "search"
+            
             return {
-                "intents": ["clarify"],
-                "search_target": "",
-                "filters": {},
-                "reasoning": "Response mila lekin expected format me nahi tha."
+                "intents": [fallback_intent],
+                "search_target": user_text, # Direct user ka input bhej do
+                "filters": {
+                    "limit": 5, "status": None, "priority": None, "city": None, 
+                    "machine": None, "category": None, "from_date": None, "to_date": None
+                },
+                "reasoning": "hmm ek sec... main database mein check karta hoon 🔍" # Safe message
             }
             
         # Agar koi aur error aaye (jaise API limit)
