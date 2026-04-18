@@ -129,7 +129,7 @@ AI: {{ "intents": ["supplier_search", "po_search"], "search_target": "DCL", "rea
   "reasoning": "Your human-like, casual conversational reply goes here"
 }}
 
-Respond ONLY in JSON.
+Respond ONLY with a raw, valid JSON object. DO NOT wrap the output in markdown code blocks (```json). DO NOT add any extra text.
 """
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -155,7 +155,21 @@ Respond ONLY in JSON.
                 temperature=0.0 
             )
             
-            data = json.loads(clean_json_string(response.choices[0].message.content))
+            raw_content = response.choices[0].message.content
+            
+            # --- Yahan se humne kachra saaf karna shuru kiya ---
+            clean_str = raw_content.strip()
+            if clean_str.startswith("```json"): 
+                clean_str = clean_str[7:]
+            if clean_str.startswith("```"): 
+                clean_str = clean_str[3:]
+            if clean_str.endswith("```"): 
+                clean_str = clean_str[:-3]
+            clean_str = clean_str.strip()
+            # --- Kachra saaf ho gaya ---
+
+            # Ab clean string ko parse karo
+            data = json.loads(clean_str) 
             
             # Default filters management
             default_filters = {
@@ -171,16 +185,25 @@ Respond ONLY in JSON.
             
             return data
 
+        # Agar JSON padhne mein error aaye
+        except json.JSONDecodeError as jde:
+            print(f"❌ JSON Decode Error. Raw content from AI:\n{raw_content}\nError: {jde}")
+            return {
+                "intents": ["clarify"],
+                "search_target": "",
+                "filters": {},
+                "reasoning": "Response mila lekin expected format me nahi tha."
+            }
+            
+        # Agar koi aur error aaye (jaise API limit)
         except Exception as e:
             # 🛑 RATE LIMIT CHECK: Agar 429 error hai toh key badlo
             if "429" in str(e) or "rate_limit_exceeded" in str(e).lower():
                 print(f"⚠️ Groq Key {current_key_index + 1} limit hit! Switching key...")
                 current_key_index = (current_key_index + 1) % len(GROQ_KEYS)
-                # Loop skip nahi hoga, doosri key ke saath 'attempt' dobara hoga
                 continue 
             else:
                 print(f"⚠️ AI Error: {e}")
-                # Kisi doosre error (e.g. timeout) par bhi doosri key try kar sakte hain
                 current_key_index = (current_key_index + 1) % len(GROQ_KEYS)
 
     # Final Fallback agar sab fail ho jaye
