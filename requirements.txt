@@ -11,3 +11,6 @@ python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
 streamlit
+sentence-transformers
+faiss-cpu
+numpy
