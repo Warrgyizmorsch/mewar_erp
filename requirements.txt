@@ -12,6 +12,6 @@ passlib[bcrypt]
 python-multipart
 streamlit
 #sentence-transformers
-fastembed
+fastembed==0.2.0
 faiss-cpu
 numpy
