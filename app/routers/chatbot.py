@@ -1,3 +1,4 @@
+from asyncio import threads
 import time
 from datetime import datetime
 from fastapi import APIRouter, Depends
@@ -49,7 +50,7 @@ def load_faiss_once(db: Session):
     
     print("⏳ Loading Semantic Search Model... (10-15 seconds) - Ye sirf Server Start par 1 baar hoga!")
     #semantic_model = SentenceTransformer('all-MiniLM-L6-v2')
-    semantic_model = TextEmbedding('BAAI/bge-small-en-v1.5') # (RAM friendly)
+    semantic_model = TextEmbedding('BAAI/bge-small-en-v1.5',threads=1) # (RAM friendly)
     
     print("🛠️ Building FAISS Memory from Database...")
     try:
@@ -58,7 +59,7 @@ def load_faiss_once(db: Session):
         inv_names_list = [row[0] for row in inv_data if row[0]]
         if inv_names_list:
             #inv_embeddings = semantic_model.encode(inv_names_list).astype('float32')
-            inv_embeddings = np.array(list(semantic_model.embed(inv_names_list))).astype('float32') # <-- New embedding code for fastembed
+            inv_embeddings = np.array(list(semantic_model.embed(inv_names_list,batch_size=50))).astype('float32') # <-- New embedding code for fastembed
             inv_faiss_index = faiss.IndexFlatL2(inv_embeddings.shape[1])
             inv_faiss_index.add(inv_embeddings)
             
@@ -78,7 +79,7 @@ def load_faiss_once(db: Session):
         sup_names_list = [row[0] for row in sup_data if row[0]]
         if sup_names_list:
             #sup_embeddings = semantic_model.encode(sup_names_list).astype('float32')
-            sup_embeddings = np.array(list(semantic_model.embed(sup_names_list))).astype('float32') # <-- New embedding code for fastembed
+            sup_embeddings = np.array(list(semantic_model.embed(sup_names_list,batch_size=50))).astype('float32') # <-- New embedding code for fastembed
             sup_faiss_index = faiss.IndexFlatL2(sup_embeddings.shape[1])
             sup_faiss_index.add(sup_embeddings)
 
@@ -92,7 +93,7 @@ def load_faiss_once(db: Session):
         proj_names_list = [row[0] for row in proj_data if row[0]]
         if proj_names_list:
             #proj_embeddings = semantic_model.encode(proj_names_list).astype('float32')
-            proj_embeddings = np.array(list(semantic_model.embed(proj_names_list))).astype('float32') # <-- New embedding code for fastembed
+            proj_embeddings = np.array(list(semantic_model.embed(proj_names_list,batch_size=50))).astype('float32') # <-- New embedding code for fastembed
             proj_faiss_index = faiss.IndexFlatL2(proj_embeddings.shape[1])
             proj_faiss_index.add(proj_embeddings)
 
