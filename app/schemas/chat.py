@@ -8,3 +8,6 @@ class ChatRequest(BaseModel):
     
     # 🚀 NEW: Frontend se dropdown filters lene ke liye
     ui_filters: Optional[Dict[str, Any]] = {}
+
+    #role check
+    role: str = "guest"

@@ -261,9 +261,18 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
     reasoning = ai_data.get("reasoning") or "hmm ek sec... main check karta hoon 👍"
     final_results = [{"type": "chat", "message": reasoning}]
 
-    # 🛡️ SEATBELT
-    if not original_target and any(i in intents for i in ["supplier_search", "project_search"]):
-        return {"results": [{"type": "chat", "message": "Bhai, kripya thoda clear batao ki aap kis company ya project ki baat kar rahe ho? 🙂"}]}
+    # ==========================================
+    # 🛡️ SMART SEATBELT (UPGRADED FOR LISTS & FILTERS)
+    # ==========================================
+    # Agar user koi filter ya list maang raha hai, toh seatbelt nahi lagegi
+    is_project_list_req = any(w in low_q for w in ["all", "saare", "sabhi", "list", "latest", "naya", "running", "chalu", "progress", "completed", "khatam", "hold", "ruka", "refurbished", "purana", "urgent", "normal", "high", "priority"])
+
+    if not original_target:
+        if "supplier_search" in intents and not any(w in low_q for w in ["all", "saare", "list"]):
+            return {"results": [{"type": "chat", "message": "Bhai, kripya thoda clear batao ki aap kis company ki baat kar rahe ho? 🙂"}]}
+        
+        elif "project_search" in intents and not is_project_list_req:
+            return {"results": [{"type": "chat", "message": "Bhai, kripya project ka naam batao, ya fir 'chalu projects', 'urgent projects' likho. 🙂"}]}
 
     # 🧹 NOISE CLEANER
     noise_words = ["supplier", "vendor", "party", "details", "contact", "profile", "ki", "ka", "ke", "project", "site", "machine"]
@@ -307,6 +316,8 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
             elif intent in ["search", "inventory_search"] and "inventory" not in allowed_perms:
                 return {"results": [{"type": "chat", "message": f"Aapka role '{user_role.title()}' hai. Aapko Stock/Inventory dekhne ki permission nahi hai. 🛑"}]}
 
+            elif intent == "financial_search" and "financials" not in allowed_perms:
+                return {"results": [{"type": "chat", "message": f"Aapka role '{user_role.title()}' hai. Aapko Balance, Taxes ya Financial details dekhne ki permission nahi hai. 🛑"}]}
 
 ####
 
@@ -317,36 +328,108 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
     for intent in intents:
         
         # ---------------------------------------------------------
-        # 📁 BRANCH 1: PROJECT LOGIC
+        # 📁 BRANCH 1: PROJECT LOGIC (FULLY UPGRADED 🚀)
         # ---------------------------------------------------------
         if intent == "project_search":
             try:
                 target = original_target.strip()
-                active_status = str(filters.get("status") or "").lower().strip()
-                query = "SELECT * FROM projects WHERE is_deleted = 0"
-                params = {}
-
-                if active_status and active_status != "all":
-                    if active_status == "refurbished": query += " AND refurbish = 1"
-                    else: query += " AND LOWER(status) = :st"; params["st"] = active_status
+                target_lower = target.lower()
+                projs = []
                 
-                if target and target.lower() not in ["all", "list", "projects", "latest"]:
-                    words = target.lower().split()
-                    target_conds = " AND ".join([f"(LOWER(name) LIKE :t{i} OR LOWER(comment) LIKE :t{i})" for i in range(len(words))])
-                    query += f" AND ({target_conds})"
-                    for i, w in enumerate(words): params[f"t{i}"] = f"%{w}%"
+                # 🧠 1. NLP OVERRIDES (Sentence-based limits)
+                if any(w in low_q for w in ["all", "saare", "sabhi", "pure", "list", "batao"]): 
+                    limit = 50
+                if any(w in low_q for w in ["last", "latest", "naya", "new"]): 
+                    limit = 1
+                    
+                # 📊 2. BOSS MODE: Highest Budget Project
+                if any(w in low_q for w in ["sabse bada project", "highest budget", "sabse mehenga", "biggest project", "sabse bada"]):
+                    big_proj = db.execute(text("SELECT * FROM projects WHERE is_deleted = 0 ORDER BY budget DESC LIMIT 1")).fetchone()
+                    if big_proj:
+                        final_results.append({"type": "chat", "message": f"🏆 **Highest Budget Project:** System ke hisaab se sabse bada project **{big_proj.name}** hai."})
+                        projs = [big_proj] 
+                        target = "SKIP_SEARCH" 
+                
+                # 🔍 3. NORMAL SEARCH & FILTERS
+                if target != "SKIP_SEARCH":
+                    active_status = str(filters.get("status") or "").lower().strip()
+                    active_priority = str(filters.get("priority") or "").lower().strip()
+                    is_refurbished = False 
+                    
+                    # 🔹 NLP STATUS CHECK
+                    if any(w in low_q for w in ["running", "chalu", "progress", "chal"]): active_status = "in progress"
+                    elif any(w in low_q for w in ["completed", "poora", "khatam", "done"]): active_status = "completed"
+                    elif any(w in low_q for w in ["hold", "ruka", "pending"]): active_status = "hold"
+                    elif any(w in low_q for w in ["new", "naya"]): active_status = "new"
+                    
+                    # 🔹 NLP REFURBISHED CHECK (Independent of Status)
+                    if any(w in low_q for w in ["refurbished", "purana", "repair"]): 
+                        is_refurbished = True
 
-                projs = db.execute(text(query + f" ORDER BY id DESC LIMIT :limit"), {**params, "limit": limit}).fetchall()
+                    # 🔹 NLP PRIORITY CHECK
+                    if any(w in low_q for w in ["urgent", "emergency", "fast"]): active_priority = "urgent"
+                    elif any(w in low_q for w in ["high"]): active_priority = "high"
+                    elif any(w in low_q for w in ["normal"]): active_priority = "normal"
+                    
+                    # 🧹 4. CLEANUP: Ignore words (Inko project ka naam mat samjho)
+                    ignore_words = [
+                        "all", "list", "projects", "latest", "project", "site", 
+                        "refurbished", "purana", "running", "chalu", "progress", 
+                        "completed", "poora", "khatam", "hold", "ruka", "new", "naya", 
+                        "urgent", "emergency", "high", "normal", "priority", "batao", "dikhao"
+                    ]
+                    if target_lower in ignore_words:
+                        target = "" 
+                        limit = 50  
+                        
+                    # 🏗️ 5. BUILD THE QUERY
+                    query = "SELECT * FROM projects WHERE is_deleted = 0"
+                    params = {}
 
-                if not projs and target and len(target) > 3:
-                    corrected_name = smart_match(target, category="project")
-                    if corrected_name and corrected_name.lower() != target.lower():
-                        projs = db.execute(text(f"SELECT * FROM projects WHERE is_deleted = 0 AND LOWER(name) LIKE :cn LIMIT :limit"), {"cn": f"%{corrected_name.lower()}%", "limit": limit}).fetchall()
+                    # Status filter
+                    if active_status and active_status != "all" and active_status != "refurbished":
+                        query += " AND LOWER(status) = :st"
+                        params["st"] = active_status
+                        
+                    # Priority filter
+                    if active_priority and active_priority != "all":
+                        query += " AND LOWER(priority) = :pr"
+                        params["pr"] = active_priority
+                        
+                    # Refurbished filter
+                    if is_refurbished:
+                        query += " AND refurbish = 1"
+                    
+                    # Date filter
+                    if filters.get("from_date") and filters.get("to_date"):
+                        query += " AND start_date BETWEEN :sd AND :ed"
+                        params["sd"] = filters["from_date"]
+                        params["ed"] = filters["to_date"]
 
+                    # Name / Comment search
+                    if target:
+                        words = target_lower.split()
+                        target_conds = " AND ".join([f"(LOWER(name) LIKE :t{i} OR LOWER(comment) LIKE :t{i})" for i in range(len(words))])
+                        query += f" AND ({target_conds})"
+                        for i, w in enumerate(words): params[f"t{i}"] = f"%{w}%"
+
+                    # 🚀 6. EXECUTE SEARCH
+                    projs = db.execute(text(query + f" ORDER BY id DESC LIMIT :limit"), {**params, "limit": limit}).fetchall()
+
+                    # 🧠 FAISS Fallback
+                    if not projs and target and len(target) > 3:
+                        corrected_name = smart_match(target, category="project")
+                        if corrected_name and corrected_name.lower() != target_lower:
+                            projs = db.execute(text(f"SELECT * FROM projects WHERE is_deleted = 0 AND LOWER(name) LIKE :cn LIMIT :limit"), {"cn": f"%{corrected_name.lower()}%", "limit": limit}).fetchall()
+
+                # 💬 7. RENDER RESULTS
                 if not projs:
-                    final_results.append({"type": "chat", "message": f"lagta hai '{target or 'is filter'}' wala koi project abhi nahi chal raha. 🧐"})
+                    status_text = f" '{active_status}' " if active_status else " "
+                    final_results.append({"type": "chat", "message": f"Bhai, lagta hai{status_text}wala koi project abhi nahi mil raha. 🧐"})
                 else:
-                    final_results.append({"type": "chat", "message": f"haan mil gaya 👍 Mujhe **{len(projs)} projects** mile hain:"})
+                    if target != "SKIP_SEARCH":
+                        final_results.append({"type": "chat", "message": f"haan mil gaya 👍 Mujhe **{len(projs)} projects** mile hain:"})
+                    
                     proj_results = []
                     for p in projs:
                         type_tag = "Refurbished" if getattr(p, 'refurbish', 0) == 1 else "New Machine"
