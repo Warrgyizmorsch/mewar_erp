@@ -1,14 +1,23 @@
 from fastapi import FastAPI
-from app.routers.chatbot import router as chatbot_router
+from app.routers.chatbot import router as chatbot_router, load_faiss_once
 from app.routers.auth import router as auth_router
 # from app.routers.supplier import router as supplier_router
 from app.routers.inventory_dropdown import router as inventory_router
 # from app.routers.supplier_search import router as supplier_search_router
 from app.routers.inventory_smart import router as inventory_smart_router
 from app.db.database import get_db
-from app.routers.chatbot import load_faiss_once
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+# 🛡️ CORS Setup (Add this)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Sab jagah se access allow karne ke liye
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.on_event("startup")
 def startup_event():
