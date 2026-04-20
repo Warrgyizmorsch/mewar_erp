@@ -267,7 +267,7 @@ if not DATABASE_URL:
     # Using the database name from the senior's screenshot
     dbname = "u512872665_db"         
     
-    DATABASE_URL = f"mysql+pymysql://{user}:{password}@{host}:{port}/{dbname}"
+    DATABASE_URL = f"mysql+pymysql://{user}:{password}@{host}:{port}/{dbname}?connect_timeout=60"
 
 # 3. Create the engine with connection stability settings for remote hosts
 engine = create_engine(
