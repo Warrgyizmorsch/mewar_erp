@@ -272,9 +272,11 @@ if not DATABASE_URL:
 # 3. Create the engine with connection stability settings for remote hosts
 engine = create_engine(
     DATABASE_URL, 
-    echo=True,
-    pool_pre_ping=True,  # Verifies connection is active before querying
-    pool_recycle=3600    # Reconnects every hour to prevent Hostinger timeouts
+    echo=False,           # Live will be noisy with echo=True, so set False. Set True locally if you want SQL logs.
+    pool_pre_ping=True, 
+    pool_recycle=280,      # 👈 for Hostinger 280`  
+    pool_size=5,           # Default connections limit
+    max_overflow=10        # Load badhne par extra connections
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
