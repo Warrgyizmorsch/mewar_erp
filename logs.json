@@ -1,0 +1,88 @@
+{"timestamp": "2026-04-15T10:40:51.039780", "query": "v belt bata do", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T10:44:50.625866", "query": "adaptor hai", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T12:16:13.567230", "query": "beerign 6205", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T12:20:34.958184", "query": "tape kitni hai", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T12:21:05.199222", "query": "Sirf bearing\" ya \"V Belt", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T12:21:19.543135", "query": "bearing or v belt batana", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T12:32:41.725555", "query": "bearing or v belt dikhao", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T12:39:22.592892", "query": "bearing or v belt dikhao", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T12:39:47.063382", "query": "bearing , vbelt or round bar bata", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T12:56:26.897735", "query": "bearing and vbelt", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T12:56:52.999445", "query": "bearing and v belt and roundd barr", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T12:57:04.202187", "query": "roundd barr", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T12:58:53.466887", "query": "roound bar or beering dikha do", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T12:59:14.375907", "query": "1095", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T12:59:21.861092", "query": "1474", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T13:00:12.840501", "query": "arwali", "intent": "supplier_search", "is_fail": false}
+{"timestamp": "2026-04-15T13:00:20.701116", "query": "detsils", "intent": "supplier_search", "is_fail": false}
+{"timestamp": "2026-04-15T13:00:35.451416", "query": "details bata do", "intent": "supplier_search", "is_fail": false}
+{"timestamp": "2026-04-15T13:15:42.226748", "query": "conveyor", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T13:17:27.185549", "query": "Shree Mahadev Stone Crusher ka contact do", "intent": "supplier_search", "is_fail": false}
+{"timestamp": "2026-04-15T13:17:56.112424", "query": "Running projects ki list dikhao", "intent": "project_search", "is_fail": true}
+{"timestamp": "2026-04-15T13:18:11.372486", "query": "sare projects batao", "intent": "project_search", "is_fail": true}
+{"timestamp": "2026-04-15T13:19:09.139022", "query": "in progress project kon kon se hai", "intent": "project_search", "is_fail": true}
+{"timestamp": "2026-04-15T13:22:58.971385", "query": "pending po batao", "intent": "po_search", "is_fail": true}
+{"timestamp": "2026-04-15T13:24:31.068713", "query": "A 1 India Febricates", "intent": "supplier_search", "is_fail": false}
+{"timestamp": "2026-04-15T13:30:07.192937", "query": "Aagaaz Wold Trade Pvt Ltd", "intent": "supplier_search", "is_fail": false}
+{"timestamp": "2026-04-15T13:30:19.286216", "query": "A 1 India Febricates", "intent": "supplier_search", "is_fail": false}
+{"timestamp": "2026-04-15T14:06:27.933631", "query": "latest po dikhao", "intent": "po_search", "is_fail": true}
+{"timestamp": "2026-04-15T14:06:47.281696", "query": "Adinath Enterprises ka PO check karo", "intent": "po_search", "is_fail": false}
+{"timestamp": "2026-04-15T14:07:20.629739", "query": "pending po batao", "intent": "po_search", "is_fail": true}
+{"timestamp": "2026-04-15T14:11:56.831882", "query": "draft po batao", "intent": "po_search", "is_fail": true}
+{"timestamp": "2026-04-15T14:18:33.390703", "query": "Shree G.K.Steels", "intent": "supplier_search", "is_fail": false}
+{"timestamp": "2026-04-15T14:18:43.091297", "query": "orders", "intent": "po_search", "is_fail": false}
+{"timestamp": "2026-04-15T14:19:02.347657", "query": "MHEL/PO/00011/2026-2027", "intent": "po_search", "is_fail": false}
+{"timestamp": "2026-04-15T14:19:19.925215", "query": "Eastern Bearings", "intent": "supplier_search", "is_fail": false}
+{"timestamp": "2026-04-15T14:19:31.113325", "query": "Eastern Bearings Pvt. Ltd.", "intent": "supplier_search", "is_fail": false}
+{"timestamp": "2026-04-15T14:26:11.105965", "query": "orders", "intent": "po_search", "is_fail": false}
+{"timestamp": "2026-04-15T14:27:47.022508", "query": "draft purchase order batao", "intent": "po_search", "is_fail": true}
+{"timestamp": "2026-04-15T14:27:55.903765", "query": "darft po batao", "intent": "po_search", "is_fail": true}
+{"timestamp": "2026-04-15T14:37:53.848979", "query": "draft po batao", "intent": "po_search", "is_fail": false}
+{"timestamp": "2026-04-15T14:41:13.843426", "query": "lock", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T14:41:37.995536", "query": "Eastern Bearings ka PO dikhao", "intent": "po_search", "is_fail": false}
+{"timestamp": "2026-04-15T14:41:54.891968", "query": "latest draft po batao", "intent": "po_search", "is_fail": false}
+{"timestamp": "2026-04-15T14:42:38.216931", "query": "Paroliya Metals ke order nikal ke de please", "intent": "po_search", "is_fail": false}
+{"timestamp": "2026-04-15T14:42:54.344812", "query": "Kya Ikon rubber ka koi purchase order system mein hai?", "intent": "po_search", "is_fail": false}
+{"timestamp": "2026-04-15T14:43:21.148502", "query": "Ikan ruber ka orrder dikhao", "intent": "search", "is_fail": true}
+{"timestamp": "2026-04-15T14:44:23.440432", "query": "Eastrn bering po batav", "intent": "po_search", "is_fail": true}
+{"timestamp": "2026-04-15T15:42:53.779888", "query": "Is mahine ke saare PO dikhao", "intent": "po_search", "is_fail": false}
+{"timestamp": "2026-04-15T15:46:20.350052", "query": "Aise PO dikhao jinka balance pending hai", "intent": "po_search", "is_fail": true}
+{"timestamp": "2026-04-15T15:53:23.160562", "query": "Aise PO dikhao jinka balance pending hai", "intent": "po_search", "is_fail": true}
+{"timestamp": "2026-04-15T16:04:23.338077", "query": "Paroliya Metals", "intent": "po_search", "is_fail": true}
+{"timestamp": "2026-04-15T16:05:42.593029", "query": "Paroliya Metals", "intent": "po_search", "is_fail": true}
+{"timestamp": "2026-04-15T16:06:40.010470", "query": "Paroliya Metals", "intent": "search", "is_fail": true}
+{"timestamp": "2026-04-15T16:07:18.982608", "query": "bearinng kitn hai", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T16:07:58.481465", "query": "drafft po batao", "intent": "po_search", "is_fail": true}
+{"timestamp": "2026-04-15T16:08:12.539882", "query": "draft po batao", "intent": "po_search", "is_fail": true}
+{"timestamp": "2026-04-15T16:10:38.761098", "query": "RVM Enterprises, Faridabad (H.R.)", "intent": "search", "is_fail": true}
+{"timestamp": "2026-04-15T16:10:46.892544", "query": "RVM Enterprises, Faridabad (H.R.)", "intent": "search", "is_fail": true}
+{"timestamp": "2026-04-15T16:16:14.961334", "query": "arawali minerlas", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T16:18:23.593970", "query": "arawali", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T16:18:47.955461", "query": "round baar", "intent": "search", "is_fail": false}
+{"timestamp": "2026-04-15T16:25:02.596807", "query": "latest po dikhao", "intent": "po_search", "is_fail": true}
+{"timestamp": "2026-04-15T16:33:37.434528", "query": "Madhav Minetech", "intent": "search", "is_fail": true}
+{"timestamp": "2026-04-16T15:12:00.146846", "query": "hello", "intent": "clarify", "is_fail": true}
+{"timestamp": "2026-04-16T15:12:28.454860", "query": "kuch bhi dikha do", "intent": "clarify", "is_fail": true}
+{"timestamp": "2026-04-16T16:16:06.977764", "query": "sab se low po kiska hai", "intent": ["po_search"], "is_fail": true}
+{"timestamp": "2026-04-16T16:17:05.490492", "query": "pending po dikhao", "intent": ["po_search"], "is_fail": true}
+{"timestamp": "2026-04-16T16:18:19.357671", "query": "draft po kis kis k hai", "intent": ["po_search"], "is_fail": true}
+{"timestamp": "2026-04-16T16:18:33.789711", "query": "latest po", "intent": ["po_search"], "is_fail": true}
+{"timestamp": "2026-04-16T17:05:34.715456", "query": "pending po batao", "intent": ["po_search"], "is_fail": true}
+{"timestamp": "2026-04-16T17:06:05.571833", "query": "pending po batao", "intent": ["po_search"], "is_fail": true}
+{"timestamp": "2026-04-16T17:06:15.906433", "query": "latest po bata do", "intent": ["po_search"], "is_fail": true}
+{"timestamp": "2026-04-16T17:09:34.071493", "query": "arawali minerls", "intent": ["supplier_search"], "is_fail": true}
+{"timestamp": "2026-04-16T17:29:48.439242", "query": "bearing kitne hai", "intent": ["search"], "is_fail": true}
+{"timestamp": "2026-04-16T17:34:00.074275", "query": "Arawli Minerls", "intent": ["supplier_search"], "is_fail": true}
+{"timestamp": "2026-04-17T13:13:36.321957", "query": "or tum kese ho", "intent": ["clarify"], "is_fail": true}
+{"timestamp": "2026-04-20T11:25:51.328799", "query": "Adinath Enterprises ka balance", "intent": ["financial_search"], "is_fail": false}
+{"timestamp": "2026-04-20T11:26:06.883107", "query": "Adinath Enterprises", "intent": ["financial_search"], "is_fail": true}
+{"timestamp": "2026-04-20T12:40:34.941831", "query": "sabse jada balance", "intent": ["financial_search"], "is_fail": false}
+{"timestamp": "2026-04-20T12:40:36.799874", "query": "sabse kam balance", "intent": ["financial_search"], "is_fail": false}
+{"timestamp": "2026-04-20T12:40:42.816585", "query": "total pending balance", "intent": ["financial_search"], "is_fail": false}
+{"timestamp": "2026-04-20T12:45:25.980801", "query": "sabse jada balance", "intent": ["financial_search"], "is_fail": false}
+{"timestamp": "2026-04-20T12:45:27.054045", "query": "sabse kam balance", "intent": ["financial_search"], "is_fail": false}
+{"timestamp": "2026-04-20T12:45:36.663543", "query": "total pending balance", "intent": ["financial_search"], "is_fail": false}
+{"timestamp": "2026-04-20T12:48:07.446708", "query": "", "intent": ["clarify"], "is_fail": true}
+{"timestamp": "2026-04-20T12:48:15.807288", "query": "", "intent": ["clarify"], "is_fail": true}
+{"timestamp": "2026-04-20T12:48:23.823346", "query": "xyz123abc", "intent": ["clarify"], "is_fail": true}
+{"timestamp": "2026-04-20T12:48:32.153093", "query": "a", "intent": ["clarify"], "is_fail": true}

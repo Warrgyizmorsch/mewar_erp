@@ -132,6 +132,7 @@ def render_bot_response(data, msg_idx):
             # ✅ AMOUNT (Budget)
             st.metric("Estimated Budget", f"₹{res.get('amount', 0):,.2f}")
             st.divider()
+            
         # 🟡 CASE 5: DROPDOWN MENU
         elif res_type == "dropdown":
             st.warning(res.get("message", "Select an item:"))
@@ -174,21 +175,29 @@ def render_bot_response(data, msg_idx):
         elif res_type == "chat":
             st.write(res["message"])
 
+
 # ==========================================
 # PAGE: CHATBOT INTERFACE
 # ==========================================
 with st.sidebar:
     st.header("Admin Panel")
-    st.write("Logged in as: **Local Dev**")
+    
+    # 🛡️ THE NEW TESTING DROPDOWN
+    selected_role = st.selectbox(
+        "🎭 Select Role (For Testing)",
+        ["Super Admin", "HOD", "Purchase Admin", "Purchase", "Store Admin", "Store Department", "Supervisor", "Sales", "HR"]
+    )
+    
+    st.write(f"Logged in as: **{selected_role}**")
     st.divider()
     if st.button("🗑️ Clear Chat History"):
         st.session_state.messages = []
         st.rerun()
-    st.caption("Mewar ERP AI - Production Mode")
+    st.caption("Mewar ERP AI - Testing Mode")
 
 st.title("ERP Intelligence 🧠")
 
-# 🚀 THE NEW HYBRID UI (MATCHING YOUR SCREENSHOT)
+# 🚀 THE NEW HYBRID UI
 if not st.session_state.messages:
     with st.container(border=True):
         st.markdown("### Hi, Welcome!")
@@ -211,11 +220,13 @@ if not st.session_state.messages:
             
     st.write("") # Spacing
 
-def ask_erp(query):
+# 🟢 UPDATE: ask_erp ab role bhi backend ko bhejega
+def ask_erp(query, role):
     headers = {"Content-Type": "application/json"}
     history = [{"role": m["role"], "content": m.get("raw_content", "")} for m in st.session_state.messages]
     try:
-        r = requests.post(CHAT_URL, json={"query": query, "history": history}, headers=headers)
+        # NAYA: json payload mein "role" daal diya
+        r = requests.post(CHAT_URL, json={"query": query, "history": history, "role": role}, headers=headers)
         return r.json()
     except Exception as e: 
         return {"error": f"FastAPI Connection Failed. {str(e)}"}
@@ -238,7 +249,8 @@ if final_query:
         st.markdown(final_query)
     st.session_state.messages.append({"role": "user", "raw_content": final_query})
     
-    data = ask_erp(final_query)
+    # 🟢 UPDATE: Yahan ask_erp ko selected role bhej rahe hain
+    data = ask_erp(final_query, selected_role)
     
     with st.chat_message("assistant"):
         render_bot_response(data, len(st.session_state.messages))
@@ -256,4 +268,3 @@ if final_query:
             "data": data, 
             "raw_content": actual_bot_message # Ab history me "Processed." nahi, asli baat jayegi!
         })
-        
