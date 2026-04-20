@@ -21,6 +21,20 @@ from app.services.ollama_engine import ask_ollama
 router = APIRouter(prefix="/chatbot", tags=["Chatbot"])
 
 # ==========================================
+# 🛡️ MEWAR ERP - ROLE PERMISSIONS
+# ==========================================
+ROLE_PERMISSIONS = {
+    "supervisor": ["inventory", "project", "general_chat"],
+    "sales": ["inventory", "general_chat"],
+    "purchase": ["inventory", "supplier", "po", "general_chat"],
+    "purchase admin": ["inventory", "supplier", "po", "financials", "general_chat"],
+    "store admin": ["inventory", "po", "project", "general_chat"],
+    "store department": ["inventory", "general_chat"],
+    "hod": ["inventory", "project", "supplier", "po", "financials", "general_chat"],
+    "hr": ["general_chat"]
+}
+
+# ==========================================
 #        FAISS Setup & Model
 # ==========================================
 print("⏳ Loading Semantic Search Model... (10-15 seconds)")
@@ -197,8 +211,14 @@ def log_query(query, intent, result):
 
 @router.post("/")
 def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
+    load_faiss_once(db)
     raw_q = request.query.strip()
     low_q = raw_q.lower()
+
+    # ==========================================
+    # 🛡️ STEP 0: USER KA ROLE NIKALO
+    # ==========================================
+    user_role = getattr(request, "role", "guest").lower().strip()
     
     # 🎯 STEP 1: FAST-TRACK ID
     if low_q.isdigit() and len(low_q) < 8:
@@ -266,6 +286,26 @@ def chatbot(request: ChatRequest, db: Session = Depends(get_db)):
     # 🚀 TAX & ADVANCE OVERRIDE
     if any(w in low_q for w in ["tax", "gst", "cgst", "sgst", "advance", "adv"]):
         intents = ["po_search"]
+
+    # ==================================================
+    # 🛑 SECURITY CHECK 2: Main Intent/Role Checking
+    # ==================================================
+    if user_role not in ["superadmin", "super admin"]:
+        allowed_perms = ROLE_PERMISSIONS.get(user_role, [])
+        
+        # Hum AI ke saare intents check karenge
+        for intent in intents:
+            if intent == "po_search" and "po" not in allowed_perms:
+                return {"results": [{"type": "chat", "message": f"Aapka role '{user_role.title()}' hai. Aapko Purchase Orders (PO) dekhne ki permission nahi hai. 🛑"}]}
+                
+            elif intent == "supplier_search" and "supplier" not in allowed_perms:
+                return {"results": [{"type": "chat", "message": f"Aapka role '{user_role.title()}' hai. Aapko Supplier details dekhne ki permission nahi hai. 🛑"}]}
+                
+            elif intent == "project_search" and "project" not in allowed_perms:
+                return {"results": [{"type": "chat", "message": f"Aapka role '{user_role.title()}' hai. Aapko Project details dekhne ki permission nahi hai. 🛑"}]}
+                
+            elif intent in ["search", "inventory_search"] and "inventory" not in allowed_perms:
+                return {"results": [{"type": "chat", "message": f"Aapka role '{user_role.title()}' hai. Aapko Stock/Inventory dekhne ki permission nahi hai. 🛑"}]}
 
 
 ####

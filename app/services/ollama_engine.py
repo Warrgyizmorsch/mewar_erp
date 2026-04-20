@@ -109,6 +109,7 @@ AI: {{ "intents": ["supplier_search", "po_search"], "search_target": "DCL", "rea
 - "supplier_search" → supplier
 - "project_search" → project
 - "po_search" → orders
+- "financial_search" → checking balance, advance, taxes, rokra, paisa
 - "clarify" → unclear input
 
 --- 📝 OUTPUT FORMAT (STRICT JSON) ---
@@ -215,7 +216,7 @@ Respond ONLY with a raw, valid JSON object. DO NOT wrap the output in markdown c
 
     # Final Fallback agar sab fail ho jaye
     return {
-        "intent": "supplier_search" if any(w in user_text.lower() for w in ["supplier", "party", "minerls", "construction", "shri"]) else "search",
+        "intents": ["supplier_search"] if any(w in user_text.lower() for w in ["supplier", "party", "minerls", "construction", "shri"]) else ["search"],
         "search_target": user_text, 
         "specific_items": [], 
         "filters": {"limit": 5, "status": None, "priority": None, "city": None, "machine": None, "category": None, "from_date": None, "to_date": None}
