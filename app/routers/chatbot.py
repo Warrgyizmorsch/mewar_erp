@@ -57,69 +57,57 @@ proj_faiss_index = None
 # generic_sup_words = set()   # 🆕
 # generic_proj_words = set()  # 🆕 
 
+import time  # 👈 Sabse upar ye zaroor add karna
+
 def load_faiss_once(db: Session):
     global semantic_model, inv_names_list, sup_names_list, inv_faiss_index, sup_faiss_index, is_faiss_loaded, proj_names_list, proj_faiss_index
     
     if is_faiss_loaded: return
     
-    print("⏳ Loading Semantic Search Model... (10-15 seconds) - Ye sirf Server Start par 1 baar hoga!")
-    #semantic_model = SentenceTransformer('all-MiniLM-L6-v2')
-    semantic_model = TextEmbedding('BAAI/bge-small-en-v1.5',threads=1) # (RAM friendly)
+    print("⏳ Loading Semantic Search Model... (threads=1)")
+    semantic_model = TextEmbedding('BAAI/bge-small-en-v1.5', threads=1)
     
-    print("🛠️ Building FAISS Memory from Database...")
-    try:
-        # 1. Inventory Indexing
-        inv_data = db.execute(text("SELECT name FROM inventories WHERE name IS NOT NULL")).fetchall()
-        inv_names_list = [row[0] for row in inv_data if row[0]]
-        if inv_names_list:
-            #inv_embeddings = semantic_model.encode(inv_names_list).astype('float32')
-            inv_embeddings = np.array(list(semantic_model.embed(inv_names_list,batch_size=50))).astype('float32') # <-- New embedding code for fastembed
-            inv_faiss_index = faiss.IndexFlatL2(inv_embeddings.shape[1])
-            inv_faiss_index.add(inv_embeddings)
-            
-            # # 🧠 THE MAGIC: DYNAMIC ITEM DICTIONARY GENERATOR
-            # # Bot khud database ke items padh kar list banayega (e.g., 'round bar', 'oil seal')
-            # for name in inv_names_list:
-            #     clean_name = re.sub(r'[^a-zA-Z\s]', '', str(name)).lower()
-            #     words = clean_name.split()
-            #     if words:
-            #         if len(words[0]) > 2: # Single words (e.g., 'round', 'oil', 'tape')
-            #             generic_inv_words.add(words[0]) 
-            #         if len(words) > 1 and len(words[0]) > 1: # Double words (e.g., 'round bar', 'oil seal')
-            #             generic_inv_words.add(f"{words[0]} {words[1]}")
+    # 🔄 RETRY LOGIC: Yahan se loop shuru hota hai
+    for attempt in range(3):
+        try:
+            print(f"🛠️ Building FAISS Memory (Attempt {attempt+1}/3)...")
 
-        # 2. Supplier Indexing
-        sup_data = db.execute(text("SELECT supplier_name FROM suppliers WHERE supplier_name IS NOT NULL")).fetchall()
-        sup_names_list = [row[0] for row in sup_data if row[0]]
-        if sup_names_list:
-            #sup_embeddings = semantic_model.encode(sup_names_list).astype('float32')
-            sup_embeddings = np.array(list(semantic_model.embed(sup_names_list,batch_size=50))).astype('float32') # <-- New embedding code for fastembed
-            sup_faiss_index = faiss.IndexFlatL2(sup_embeddings.shape[1])
-            sup_faiss_index.add(sup_embeddings)
+            # 1. Inventory Indexing
+            inv_data = db.execute(text("SELECT name FROM inventories WHERE name IS NOT NULL")).fetchall()
+            inv_names_list = [row[0] for row in inv_data if row[0]]
+            if inv_names_list:
+                inv_embeddings = np.array(list(semantic_model.embed(inv_names_list, batch_size=50))).astype('float32')
+                inv_faiss_index = faiss.IndexFlatL2(inv_embeddings.shape[1])
+                inv_faiss_index.add(inv_embeddings)
 
-            # for name in sup_names_list:
-            #     words = re.findall(r'\w+', str(name).lower())
-            #     if words: 
-            #         generic_sup_words.update([w for w in words if len(w) > 2])
+            # 2. Supplier Indexing
+            sup_data = db.execute(text("SELECT supplier_name FROM suppliers WHERE supplier_name IS NOT NULL")).fetchall()
+            sup_names_list = [row[0] for row in sup_data if row[0]]
+            if sup_names_list:
+                sup_embeddings = np.array(list(semantic_model.embed(sup_names_list, batch_size=50))).astype('float32')
+                sup_faiss_index = faiss.IndexFlatL2(sup_embeddings.shape[1])
+                sup_faiss_index.add(sup_embeddings)
 
-        # 3. 🏗️ PROJECT INDEXING
-        proj_data = db.execute(text("SELECT name FROM projects WHERE name IS NOT NULL AND is_deleted = 0")).fetchall()
-        proj_names_list = [row[0] for row in proj_data if row[0]]
-        if proj_names_list:
-            #proj_embeddings = semantic_model.encode(proj_names_list).astype('float32')
-            proj_embeddings = np.array(list(semantic_model.embed(proj_names_list,batch_size=50))).astype('float32') # <-- New embedding code for fastembed
-            proj_faiss_index = faiss.IndexFlatL2(proj_embeddings.shape[1])
-            proj_faiss_index.add(proj_embeddings)
+            # 3. Project Indexing
+            proj_data = db.execute(text("SELECT name FROM projects WHERE name IS NOT NULL AND is_deleted = 0")).fetchall()
+            proj_names_list = [row[0] for row in proj_data if row[0]]
+            if proj_names_list:
+                proj_embeddings = np.array(list(semantic_model.embed(proj_names_list, batch_size=50))).astype('float32')
+                proj_faiss_index = faiss.IndexFlatL2(proj_embeddings.shape[1])
+                proj_faiss_index.add(proj_embeddings)
 
-            # for name in proj_names_list:
-            #     words = re.findall(r'\w+', str(name).lower())
-            #     if words: 
-            #         generic_proj_words.update([w for w in words if len(w) > 2])   
-            
-        is_faiss_loaded = True
-        print(f"✅ FAISS Ready! Indexed {len(inv_names_list)} Items, {len(sup_names_list)} Suppliers & {len(proj_names_list)} Projects.")
-    except Exception as e:
-        print(f"⚠️ FAISS Load Error: {e}")
+            # ✅ Agar yahan tak code pahunch gaya, toh success!
+            is_faiss_loaded = True
+            print(f"✅ FAISS Ready! Indexed {len(inv_names_list)} Items, {len(sup_names_list)} Suppliers & {len(proj_names_list)} Projects.")
+            return # Loop se bahar nikal jao
+
+        except Exception as e:
+            print(f"⚠️ Attempt {attempt+1} failed: {e}")
+            if attempt < 2: # Agar 3rd attempt nahi hai, toh ruko
+                print("🔄 Database busy or disconnected. Retrying in 3 seconds...")
+                time.sleep(3)
+            else:
+                print("❌ All attempts failed. FAISS load error.")
 
 def smart_match(query_text, category="inventory"):
     if not query_text or len(query_text) < 2 or not is_faiss_loaded: return query_text
