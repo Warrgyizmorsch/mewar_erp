@@ -103,8 +103,15 @@ def load_faiss_once(db: Session):
 
         except Exception as e:
             print(f"⚠️ Attempt {attempt+1} failed: {e}")
+            
+            # 👇 NAYI LINE: Kharaab connection ko reset karne ke liye
+            try:
+                db.rollback() 
+            except:
+                pass
+                
             if attempt < 2: # Agar 3rd attempt nahi hai, toh ruko
-                print("🔄 Database busy or disconnected. Retrying in 3 seconds...")
+                print("🔄 Database reset done. Retrying in 3 seconds...")
                 time.sleep(3)
             else:
                 print("❌ All attempts failed. FAISS load error.")

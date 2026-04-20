@@ -19,6 +19,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def run_faiss_in_background():
+    print("🔄 Background Thread Started for FAISS...")
+    db_gen = get_db()
+    db = next(db_gen) 
+    try:
+        load_faiss_once(db)
+    except Exception as e:
+        print(f"⚠️ Background Load Error: {e}")
+    finally:
+        db_gen.close()
+
 @app.on_event("startup")
 def startup_event():
     print("🚀 App starting up... Initializing FAISS memory.")
